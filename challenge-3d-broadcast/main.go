@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strconv"
 	"sync"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
@@ -104,18 +105,13 @@ func (s *server) getAllIDs() []int {
 	return ids
 }
 
-type topologyMsg struct {
-	Topology map[string][]string `json:"topology"`
-}
-
 func (s *server) topologyHandler(msg maelstrom.Message) error {
-	var t topologyMsg
-	if err := json.Unmarshal(msg.Body, &t); err != nil {
+	s.nodesMu.Lock()
+	neighbors, err := topology(s.nodeID, s.n.NodeIDs())
+	if err != nil {
 		return err
 	}
-
-	s.nodesMu.Lock()
-	s.neighbors = t.Topology[s.nodeID]
+	s.neighbors = neighbors
 	s.nodesMu.Unlock()
 
 	return s.n.Reply(msg, map[string]any{
@@ -167,4 +163,53 @@ func (b *broadcaster) broadcast(msg broadcastMsg) {
 
 func (b *broadcaster) close() {
 	b.cancel()
+}
+
+func topology(sNodeID string, nodes []string) ([]string, error) {
+	ids := make([]int, len(nodes))
+	max := 0
+	for i, node := range nodes {
+		v, err := id(node)
+		if err != nil {
+			return nil, err
+		}
+		ids[i] = v
+		if v > max {
+			max = v
+		}
+	}
+
+	nodeID, err := id(sNodeID)
+	if err != nil {
+		return nil, err
+	}
+
+	switch nodeID % 3 {
+	case 0:
+		return formatNodes(max, nodeID+3, nodeID-3, nodeID+1, nodeID+2), nil
+	case 1:
+		return formatNodes(max, nodeID+3, nodeID-3, nodeID-1, nodeID+12), nil
+	case 2:
+		return formatNodes(max, nodeID+3, nodeID-3, nodeID-2, nodeID-1), nil
+	}
+	return nil, nil
+}
+
+func formatNodes(max int, nodes ...int) []string {
+	res := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		if node > max || node < 0 {
+			continue
+		}
+		res = append(res, "n"+strconv.Itoa(node))
+	}
+	return res
+}
+
+func id(s string) (int, error) {
+	i, err := strconv.Atoi(s[1:])
+	if err != nil {
+		return 0, err
+	}
+	return i, nil
 }
