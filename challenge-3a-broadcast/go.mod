@@ -1,4 +1,4 @@
-module github.com/teivah/gossip-glomers/challenge-3-broadcast
+module github.com/teivah/gossip-glomers/challenge-3a-broadcast
 
 go 1.20
 

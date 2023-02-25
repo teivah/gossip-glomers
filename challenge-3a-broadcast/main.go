@@ -12,9 +12,9 @@ func main() {
 	n := maelstrom.NewNode()
 	s := &server{n: n}
 
-	n.Handle("broadcast", s.broadcast)
-	n.Handle("read", s.read)
-	n.Handle("topology", s.topology)
+	n.Handle("broadcast", s.broadcastHandler)
+	n.Handle("read", s.readHandler)
+	n.Handle("topology", s.topologyHandler)
 
 	if err := n.Run(); err != nil {
 		log.Fatal(err)
@@ -31,7 +31,7 @@ type server struct {
 	currentTopology map[string][]string
 }
 
-func (s *server) broadcast(msg maelstrom.Message) error {
+func (s *server) broadcastHandler(msg maelstrom.Message) error {
 	var body map[string]any
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return err
@@ -46,7 +46,7 @@ func (s *server) broadcast(msg maelstrom.Message) error {
 	})
 }
 
-func (s *server) read(msg maelstrom.Message) error {
+func (s *server) readHandler(msg maelstrom.Message) error {
 	s.idsMu.RLock()
 	ids := make([]int, len(s.ids))
 	for i := 0; i < len(s.ids); i++ {
@@ -64,7 +64,7 @@ type topologyMsg struct {
 	Topology map[string][]string `json:"topology"`
 }
 
-func (s *server) topology(msg maelstrom.Message) error {
+func (s *server) topologyHandler(msg maelstrom.Message) error {
 	var t topologyMsg
 	if err := json.Unmarshal(msg.Body, &t); err != nil {
 		return err
