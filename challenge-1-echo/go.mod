@@ -1,4 +1,4 @@
-module challenge-1-echo
+module github.com/teivah/gossip-glomers/challenge-1-echo
 
 go 1.20
 
