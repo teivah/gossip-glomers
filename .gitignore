@@ -1,2 +1,5 @@
 .idea
-gossip-glomers.iml
+**/target
+**/vendor
+**.iml
+**/bin
