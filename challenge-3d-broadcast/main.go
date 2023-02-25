@@ -13,8 +13,9 @@ func main() {
 	n := maelstrom.NewNode()
 	br := newBroadcaster(n, 10)
 	defer br.close()
-	s := &server{n: n, nodeID: n.ID(), ids: make(map[int]struct{}), br: br}
+	s := &server{n: n, ids: make(map[int]struct{}), br: br}
 
+	n.Handle("init", s.initHandler)
 	n.Handle("broadcast", s.broadcastHandler)
 	n.Handle("read", s.readHandler)
 	n.Handle("topology", s.topologyHandler)
@@ -32,8 +33,13 @@ type server struct {
 	idsMu sync.RWMutex
 	ids   map[int]struct{}
 
-	nodesMu sync.RWMutex
-	nodes   []string
+	nodesMu   sync.RWMutex
+	neighbors []string
+}
+
+func (s *server) initHandler(_ maelstrom.Message) error {
+	s.nodeID = s.n.ID()
+	return nil
 }
 
 func (s *server) broadcastHandler(msg maelstrom.Message) error {
@@ -62,10 +68,10 @@ func (s *server) broadcastHandler(msg maelstrom.Message) error {
 
 func (s *server) broadcast(src string, body map[string]any) error {
 	s.nodesMu.RLock()
-	nodes := s.nodes
+	neighbors := s.neighbors
 	defer s.nodesMu.RUnlock()
 
-	for _, dst := range nodes {
+	for _, dst := range neighbors {
 		if dst == src || dst == s.nodeID {
 			continue
 		}
@@ -109,7 +115,7 @@ func (s *server) topologyHandler(msg maelstrom.Message) error {
 	}
 
 	s.nodesMu.Lock()
-	s.nodes = t.Topology[s.nodeID]
+	s.neighbors = t.Topology[s.nodeID]
 	s.nodesMu.Unlock()
 
 	return s.n.Reply(msg, map[string]any{
