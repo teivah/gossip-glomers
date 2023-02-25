@@ -41,9 +41,33 @@ func (s *server) broadcastHandler(msg maelstrom.Message) error {
 	s.ids = append(s.ids, int(body["message"].(float64)))
 	s.idsMu.Unlock()
 
+	if err := s.broadcast(msg.Src, body); err != nil {
+		return err
+	}
+
 	return s.n.Reply(msg, map[string]any{
 		"type": "broadcast_ok",
 	})
+}
+
+func (s *server) broadcast(src string, body map[string]any) error {
+	nodes := make(map[string]struct{})
+	s.topologyMu.Lock()
+	for node := range s.currentTopology {
+		nodes[node] = struct{}{}
+	}
+	s.topologyMu.Unlock()
+
+	for node := range nodes {
+		if src == node {
+			continue
+		}
+
+		if err := s.n.Send(node, body); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *server) readHandler(msg maelstrom.Message) error {
