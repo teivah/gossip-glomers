@@ -82,7 +82,6 @@ func (s *server) getAllIDs() []int {
 	s.idsMu.RLock()
 	ids := make([]int, 0, len(s.ids))
 	for id := range s.ids {
-
 		ids = append(ids, id)
 	}
 	s.idsMu.RUnlock()

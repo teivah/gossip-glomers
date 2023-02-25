@@ -31,6 +31,9 @@ type server struct {
 
 	idsMu sync.RWMutex
 	ids   map[int]struct{}
+
+	nodesMu sync.RWMutex
+	nodes   []string
 }
 
 func (s *server) broadcastHandler(msg maelstrom.Message) error {
@@ -58,7 +61,11 @@ func (s *server) broadcastHandler(msg maelstrom.Message) error {
 }
 
 func (s *server) broadcast(src string, body map[string]any) error {
-	for _, dst := range s.n.NodeIDs() {
+	s.nodesMu.RLock()
+	nodes := s.nodes
+	defer s.nodesMu.RUnlock()
+
+	for _, dst := range nodes {
 		if dst == src || dst == s.nodeID {
 			continue
 		}
@@ -84,7 +91,6 @@ func (s *server) getAllIDs() []int {
 	s.idsMu.RLock()
 	ids := make([]int, 0, len(s.ids))
 	for id := range s.ids {
-
 		ids = append(ids, id)
 	}
 	s.idsMu.RUnlock()
@@ -92,7 +98,20 @@ func (s *server) getAllIDs() []int {
 	return ids
 }
 
+type topologyMsg struct {
+	Topology map[string][]string `json:"topology"`
+}
+
 func (s *server) topologyHandler(msg maelstrom.Message) error {
+	var t topologyMsg
+	if err := json.Unmarshal(msg.Body, &t); err != nil {
+		return err
+	}
+
+	s.nodesMu.Lock()
+	s.nodes = t.Topology[s.nodeID]
+	s.nodesMu.Unlock()
+
 	return s.n.Reply(msg, map[string]any{
 		"type": "topology_ok",
 	})
