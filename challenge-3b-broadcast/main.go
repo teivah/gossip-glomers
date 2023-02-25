@@ -10,7 +10,7 @@ import (
 
 func main() {
 	n := maelstrom.NewNode()
-	s := &server{n: n, id: n.ID()}
+	s := &server{n: n, nodeID: n.ID()}
 
 	n.Handle("broadcast", s.broadcastHandler)
 	n.Handle("read", s.readHandler)
@@ -22,14 +22,11 @@ func main() {
 }
 
 type server struct {
-	n  *maelstrom.Node
-	id string
+	n      *maelstrom.Node
+	nodeID string
 
 	idsMu sync.RWMutex
 	ids   []int
-
-	nodesMu sync.RWMutex
-	nodes   []string
 }
 
 func (s *server) broadcastHandler(msg maelstrom.Message) error {
@@ -52,13 +49,8 @@ func (s *server) broadcastHandler(msg maelstrom.Message) error {
 }
 
 func (s *server) broadcast(src string, body map[string]any) error {
-	s.nodesMu.RLock()
-	nodes := make([]string, 0, len(s.nodes))
-	copy(nodes, s.nodes)
-	s.nodesMu.RUnlock()
-
-	for _, dst := range nodes {
-		if dst == src || dst == s.id {
+	for _, dst := range s.n.NodeIDs() {
+		if dst == src || dst == s.nodeID {
 			continue
 		}
 
@@ -73,12 +65,7 @@ func (s *server) broadcast(src string, body map[string]any) error {
 }
 
 func (s *server) readHandler(msg maelstrom.Message) error {
-	s.idsMu.RLock()
-	ids := make([]int, len(s.ids))
-	for i := 0; i < len(s.ids); i++ {
-		ids[i] = s.ids[i]
-	}
-	s.idsMu.RUnlock()
+	ids := s.getAllIDs()
 
 	return s.n.Reply(msg, map[string]any{
 		"type":     "read_ok",
@@ -86,11 +73,18 @@ func (s *server) readHandler(msg maelstrom.Message) error {
 	})
 }
 
-func (s *server) topologyHandler(msg maelstrom.Message) error {
-	s.nodesMu.Lock()
-	s.nodes = s.n.NodeIDs()
-	s.nodesMu.Unlock()
+func (s *server) getAllIDs() []int {
+	s.idsMu.RLock()
+	ids := make([]int, len(s.ids))
+	for i := 0; i < len(s.ids); i++ {
+		ids[i] = s.ids[i]
+	}
+	s.idsMu.RUnlock()
 
+	return ids
+}
+
+func (s *server) topologyHandler(msg maelstrom.Message) error {
 	return s.n.Reply(msg, map[string]any{
 		"type": "topology_ok",
 	})
