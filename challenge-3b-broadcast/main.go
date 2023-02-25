@@ -10,7 +10,7 @@ import (
 
 func main() {
 	n := maelstrom.NewNode()
-	s := &server{n: n, nodeID: n.ID()}
+	s := &server{n: n, nodeID: n.ID(), ids: make(map[int]struct{})}
 
 	n.Handle("broadcast", s.broadcastHandler)
 	n.Handle("read", s.readHandler)
@@ -26,7 +26,7 @@ type server struct {
 	nodeID string
 
 	idsMu sync.RWMutex
-	ids   []int
+	ids   map[int]struct{}
 }
 
 func (s *server) broadcastHandler(msg maelstrom.Message) error {
@@ -35,8 +35,13 @@ func (s *server) broadcastHandler(msg maelstrom.Message) error {
 		return err
 	}
 
+	id := int(body["message"].(float64))
 	s.idsMu.Lock()
-	s.ids = append(s.ids, int(body["message"].(float64)))
+	if _, exists := s.ids[id]; exists {
+		s.idsMu.Unlock()
+		return nil
+	}
+	s.ids[id] = struct{}{}
 	s.idsMu.Unlock()
 
 	if err := s.broadcast(msg.Src, body); err != nil {
@@ -75,9 +80,10 @@ func (s *server) readHandler(msg maelstrom.Message) error {
 
 func (s *server) getAllIDs() []int {
 	s.idsMu.RLock()
-	ids := make([]int, len(s.ids))
-	for i := 0; i < len(s.ids); i++ {
-		ids[i] = s.ids[i]
+	ids := make([]int, 0, len(s.ids))
+	for id := range s.ids {
+
+		ids = append(ids, id)
 	}
 	s.idsMu.RUnlock()
 
