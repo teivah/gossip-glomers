@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"sync"
@@ -10,7 +11,9 @@ import (
 
 func main() {
 	n := maelstrom.NewNode()
-	s := &server{n: n, nodeID: n.ID(), ids: make(map[int]struct{})}
+	br := newBroadcaster(n, 10)
+	defer br.close()
+	s := &server{n: n, nodeID: n.ID(), ids: make(map[int]struct{}), br: br}
 
 	n.Handle("broadcast", s.broadcastHandler)
 	n.Handle("read", s.readHandler)
@@ -24,6 +27,7 @@ func main() {
 type server struct {
 	n      *maelstrom.Node
 	nodeID string
+	br     *broadcaster
 
 	idsMu sync.RWMutex
 	ids   map[int]struct{}
@@ -59,12 +63,10 @@ func (s *server) broadcast(src string, body map[string]any) error {
 			continue
 		}
 
-		dst := dst
-		go func() {
-			if err := s.n.Send(dst, body); err != nil {
-				panic(err)
-			}
-		}()
+		s.br.broadcast(broadcastMsg{
+			dst:  dst,
+			body: body,
+		})
 	}
 	return nil
 }
@@ -94,4 +96,50 @@ func (s *server) topologyHandler(msg maelstrom.Message) error {
 	return s.n.Reply(msg, map[string]any{
 		"type": "topology_ok",
 	})
+}
+
+type broadcastMsg struct {
+	dst  string
+	body map[string]any
+}
+
+type broadcaster struct {
+	cancel context.CancelFunc
+	ch     chan broadcastMsg
+}
+
+func newBroadcaster(n *maelstrom.Node, worker int) *broadcaster {
+	ch := make(chan broadcastMsg)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	for i := 0; i < worker; i++ {
+		go func() {
+			for {
+				select {
+				case msg := <-ch:
+					for {
+						if err := n.Send(msg.dst, msg.body); err != nil {
+							continue
+						}
+						break
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+
+	return &broadcaster{
+		ch:     ch,
+		cancel: cancel,
+	}
+}
+
+func (b *broadcaster) broadcast(msg broadcastMsg) {
+	b.ch <- msg
+}
+
+func (b *broadcaster) close() {
+	b.cancel()
 }
