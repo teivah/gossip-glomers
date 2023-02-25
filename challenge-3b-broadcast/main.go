@@ -10,7 +10,7 @@ import (
 
 func main() {
 	n := maelstrom.NewNode()
-	s := &server{n: n}
+	s := &server{n: n, id: n.ID()}
 
 	n.Handle("broadcast", s.broadcastHandler)
 	n.Handle("read", s.readHandler)
@@ -22,13 +22,14 @@ func main() {
 }
 
 type server struct {
-	n *maelstrom.Node
+	n  *maelstrom.Node
+	id string
 
 	idsMu sync.RWMutex
 	ids   []int
 
-	topologyMu      sync.RWMutex
-	currentTopology map[string][]string
+	nodesMu sync.RWMutex
+	nodes   []string
 }
 
 func (s *server) broadcastHandler(msg maelstrom.Message) error {
@@ -51,21 +52,22 @@ func (s *server) broadcastHandler(msg maelstrom.Message) error {
 }
 
 func (s *server) broadcast(src string, body map[string]any) error {
-	nodes := make(map[string]struct{})
-	s.topologyMu.Lock()
-	for node := range s.currentTopology {
-		nodes[node] = struct{}{}
-	}
-	s.topologyMu.Unlock()
+	s.nodesMu.RLock()
+	nodes := make([]string, 0, len(s.nodes))
+	copy(nodes, s.nodes)
+	s.nodesMu.RUnlock()
 
-	for node := range nodes {
-		if src == node {
+	for _, dst := range nodes {
+		if dst == src || dst == s.id {
 			continue
 		}
 
-		if err := s.n.Send(node, body); err != nil {
-			return err
-		}
+		dst := dst
+		go func() {
+			if err := s.n.Send(dst, body); err != nil {
+				panic(err)
+			}
+		}()
 	}
 	return nil
 }
@@ -84,19 +86,10 @@ func (s *server) readHandler(msg maelstrom.Message) error {
 	})
 }
 
-type topologyMsg struct {
-	Topology map[string][]string `json:"topology"`
-}
-
 func (s *server) topologyHandler(msg maelstrom.Message) error {
-	var t topologyMsg
-	if err := json.Unmarshal(msg.Body, &t); err != nil {
-		return err
-	}
-
-	s.topologyMu.Lock()
-	s.currentTopology = t.Topology
-	s.topologyMu.Unlock()
+	s.nodesMu.Lock()
+	s.nodes = s.n.NodeIDs()
+	s.nodesMu.Unlock()
 
 	return s.n.Reply(msg, map[string]any{
 		"type": "topology_ok",
