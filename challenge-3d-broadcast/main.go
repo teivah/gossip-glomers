@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 
 	rbt "github.com/emirpasic/gods/trees/redblacktree"
@@ -83,15 +82,6 @@ func (s *server) broadcastHandler(msg maelstrom.Message) error {
 	return s.n.Reply(msg, map[string]any{
 		"type": "broadcast_ok",
 	})
-}
-
-func parseExists(exists string) map[string]bool {
-	split := strings.Split(exists, ",")
-	m := make(map[string]bool)
-	for _, s := range split {
-		m[s] = true
-	}
-	return m
 }
 
 func (s *server) broadcast(src string, body map[string]any) error {

@@ -18,4 +18,5 @@ func Test_server_topologyHandler(t *testing.T) {
 	fmt.Println(n.Value)
 	fmt.Println(n.Left)
 	fmt.Println(n.Right)
+	fmt.Println(n.Parent)
 }
