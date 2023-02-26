@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 
-	rbt "github.com/emirpasic/gods/trees/redblacktree"
+	avl "github.com/emirpasic/gods/trees/avltree"
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 	log "github.com/sirupsen/logrus"
 )
@@ -47,7 +48,7 @@ type server struct {
 	ids   map[int]struct{}
 
 	nodesMu sync.RWMutex
-	tree    *rbt.Tree
+	tree    *avl.Tree
 }
 
 func (s *server) initHandler(_ maelstrom.Message) error {
@@ -95,22 +96,47 @@ func (s *server) broadcast(src string, body map[string]any) error {
 		v := parent.Value.(*node)
 		neighbors = append(neighbors, v.id)
 	}
-	if left := n.Left; left != nil {
+	if left := n.Children[0]; left != nil {
 		v := left.Value.(*node)
 		neighbors = append(neighbors, v.id)
 	}
-	if right := n.Right; right != nil {
+	if right := n.Children[1]; right != nil {
 		v := right.Value.(*node)
 		neighbors = append(neighbors, v.id)
 	}
 	v := n.Value.(*node)
-	if v.level == 2 {
+	if v.level%2 == 0 {
 		for _, sibling := range v.siblings {
 			neighbors = append(neighbors, sibling.id)
 		}
 	}
 
+	var exists []string
+	if e, contains := body["exists"]; contains {
+		s := e.(string)
+		exists = strings.Split(s, ",")
+	}
+	exists = append(exists, s.nodeID)
+	set := make(map[string]bool)
+	for _, s := range exists {
+		set[s] = true
+	}
+
+	var filtered []string
 	for _, dst := range neighbors {
+		if dst == src || dst == s.nodeID {
+			continue
+		}
+
+		filtered = append(filtered, dst)
+		exists = append(exists, dst)
+	}
+	body["exists"] = strings.Join(exists, ",")
+
+	for _, dst := range neighbors {
+		if set[dst] {
+			continue
+		}
 		if dst == src || dst == s.nodeID {
 			continue
 		}
@@ -143,14 +169,23 @@ func (s *server) getAllIDs() []int {
 	return ids
 }
 
+func parseExists(exists string) map[string]bool {
+	split := strings.Split(exists, ",")
+	m := make(map[string]bool)
+	for _, s := range split {
+		m[s] = true
+	}
+	return m
+}
+
 func (s *server) topologyHandler(msg maelstrom.Message) error {
-	tree := rbt.NewWithIntComparator()
+	tree := avl.NewWithIntComparator()
 	// TODO Use number of nodes
 	for i := 0; i < 25; i++ {
 		tree.Put(i, fmt.Sprintf("n%d", i))
 	}
 	root := toNode(tree)
-	ftree := rbt.NewWith(func(a, b interface{}) int {
+	ftree := avl.NewWith(func(a, b interface{}) int {
 		x := a.(int)
 		y := b.(int)
 		return x - y
@@ -257,7 +292,7 @@ type node struct {
 	id       string
 }
 
-func toNode(tree *rbt.Tree) *node {
+func toNode(tree *avl.Tree) *node {
 	v := tree.GetNode(0)
 	for v.Parent != nil {
 		v = v.Parent
@@ -266,7 +301,7 @@ func toNode(tree *rbt.Tree) *node {
 	root := &node{value: v.Key.(int), id: fmt.Sprintf("%v", v.Value)}
 
 	type entry struct {
-		treeNode *rbt.Node
+		treeNode *avl.Node
 		parent   *node
 		node     *node
 	}
@@ -287,11 +322,11 @@ func toNode(tree *rbt.Tree) *node {
 			e := q[0]
 			q = q[1:]
 
-			if child := e.treeNode.Left; child != nil {
+			if child := e.treeNode.Children[0]; child != nil {
 				n := &node{
 					parent: e.parent,
-					value:  e.treeNode.Left.Key.(int),
-					id:     fmt.Sprintf("%v", e.treeNode.Left.Value),
+					value:  e.treeNode.Children[0].Key.(int),
+					id:     fmt.Sprintf("%v", e.treeNode.Children[0].Value),
 					level:  level,
 				}
 				siblings = append(siblings, n)
@@ -299,16 +334,16 @@ func toNode(tree *rbt.Tree) *node {
 				e.node.left = n
 
 				q = append(q, entry{
-					treeNode: e.treeNode.Left,
+					treeNode: e.treeNode.Children[0],
 					parent:   e.node,
 					node:     n,
 				})
 			}
-			if child := e.treeNode.Right; child != nil {
+			if child := e.treeNode.Children[1]; child != nil {
 				n := &node{
 					parent: e.parent,
-					value:  e.treeNode.Right.Key.(int),
-					id:     fmt.Sprintf("%v", e.treeNode.Right.Value),
+					value:  e.treeNode.Children[1].Key.(int),
+					id:     fmt.Sprintf("%v", e.treeNode.Children[1].Value),
 					level:  level,
 				}
 				siblings = append(siblings, n)
@@ -316,7 +351,7 @@ func toNode(tree *rbt.Tree) *node {
 				e.node.right = n
 
 				q = append(q, entry{
-					treeNode: e.treeNode.Right,
+					treeNode: e.treeNode.Children[1],
 					parent:   e.node,
 					node:     n,
 				})
@@ -331,7 +366,7 @@ func toNode(tree *rbt.Tree) *node {
 	return root
 }
 
-func dfs(ftree *rbt.Tree, node *node) {
+func dfs(ftree *avl.Tree, node *node) {
 	if node == nil {
 		return
 	}
