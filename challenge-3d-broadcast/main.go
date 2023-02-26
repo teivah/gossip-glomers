@@ -87,21 +87,28 @@ func (s *server) broadcastHandler(msg maelstrom.Message) error {
 func (s *server) broadcast(src string, body map[string]any) error {
 	s.nodesMu.RLock()
 
-	node := s.tree.GetNode(s.id)
+	n := s.tree.GetNode(s.id)
 	defer s.nodesMu.RUnlock()
 
 	var neighbors []string
-	if parent := node.Parent; parent != nil {
-		neighbors = append(neighbors, fmt.Sprintf("%v", parent.Value))
+	if parent := n.Parent; parent != nil {
+		v := parent.Value.(*node)
+		neighbors = append(neighbors, v.id)
 	}
-	if left := node.Left; left != nil {
-		neighbors = append(neighbors, fmt.Sprintf("%v", left.Value))
+	if left := n.Left; left != nil {
+		v := left.Value.(*node)
+		neighbors = append(neighbors, v.id)
 	}
-	if right := node.Right; right != nil {
-		neighbors = append(neighbors, fmt.Sprintf("%v", right.Value))
+	if right := n.Right; right != nil {
+		v := right.Value.(*node)
+		neighbors = append(neighbors, v.id)
 	}
-
-	log.Infof("src: %v, cur: %v => %v", src, s.nodeID, neighbors)
+	v := n.Value.(*node)
+	if v.level == 2 {
+		for _, sibling := range v.siblings {
+			neighbors = append(neighbors, sibling.id)
+		}
+	}
 
 	for _, dst := range neighbors {
 		if dst == src || dst == s.nodeID {
@@ -142,9 +149,16 @@ func (s *server) topologyHandler(msg maelstrom.Message) error {
 	for i := 0; i < 25; i++ {
 		tree.Put(i, fmt.Sprintf("n%d", i))
 	}
+	root := toNode(tree)
+	ftree := rbt.NewWith(func(a, b interface{}) int {
+		x := a.(int)
+		y := b.(int)
+		return x - y
+	})
+	dfs(ftree, root)
 
 	s.nodesMu.Lock()
-	s.tree = tree
+	s.tree = ftree
 	s.nodesMu.Unlock()
 
 	return s.n.Reply(msg, map[string]any{
@@ -231,4 +245,98 @@ func id(s string) (int, error) {
 		return 0, err
 	}
 	return i, nil
+}
+
+type node struct {
+	parent   *node
+	left     *node
+	right    *node
+	level    int
+	siblings []*node
+	value    int
+	id       string
+}
+
+func toNode(tree *rbt.Tree) *node {
+	v := tree.GetNode(0)
+	for v.Parent != nil {
+		v = v.Parent
+	}
+
+	root := &node{value: v.Key.(int), id: fmt.Sprintf("%v", v.Value)}
+
+	type entry struct {
+		treeNode *rbt.Node
+		parent   *node
+		node     *node
+	}
+
+	var q []entry
+	q = append(q, entry{
+		treeNode: v,
+		node:     root,
+	})
+
+	level := -1
+	for len(q) != 0 {
+		count := len(q)
+		var siblings []*node
+		level++
+
+		for i := 0; i < count; i++ {
+			e := q[0]
+			q = q[1:]
+
+			if child := e.treeNode.Left; child != nil {
+				n := &node{
+					parent: e.parent,
+					value:  e.treeNode.Left.Key.(int),
+					id:     fmt.Sprintf("%v", e.treeNode.Left.Value),
+					level:  level,
+				}
+				siblings = append(siblings, n)
+
+				e.node.left = n
+
+				q = append(q, entry{
+					treeNode: e.treeNode.Left,
+					parent:   e.node,
+					node:     n,
+				})
+			}
+			if child := e.treeNode.Right; child != nil {
+				n := &node{
+					parent: e.parent,
+					value:  e.treeNode.Right.Key.(int),
+					id:     fmt.Sprintf("%v", e.treeNode.Right.Value),
+					level:  level,
+				}
+				siblings = append(siblings, n)
+
+				e.node.right = n
+
+				q = append(q, entry{
+					treeNode: e.treeNode.Right,
+					parent:   e.node,
+					node:     n,
+				})
+			}
+		}
+
+		for _, n := range siblings {
+			n.siblings = siblings
+		}
+	}
+
+	return root
+}
+
+func dfs(ftree *rbt.Tree, node *node) {
+	if node == nil {
+		return
+	}
+
+	ftree.Put(node.value, node)
+	dfs(ftree, node.left)
+	dfs(ftree, node.right)
 }

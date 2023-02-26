@@ -14,9 +14,12 @@ func Test_server_topologyHandler(t *testing.T) {
 		tree.Put(i, fmt.Sprintf("n%d", i))
 	}
 
-	n := tree.GetNode(0)
-	fmt.Println(n.Value)
-	fmt.Println(n.Left)
-	fmt.Println(n.Right)
-	fmt.Println(n.Parent)
+	root := toNode(tree)
+	ftree := rbt.NewWith(func(a, b interface{}) int {
+		x := a.(int)
+		y := b.(int)
+		return y - x
+	})
+	dfs(ftree, root)
+	fmt.Println(ftree)
 }
