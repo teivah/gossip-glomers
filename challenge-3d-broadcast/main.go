@@ -11,10 +11,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var logger *log.Entry
-
 func init() {
-	f, err := os.OpenFile("/tmp/log", os.O_WRONLY|os.O_CREATE, 0755)
+	f, err := os.OpenFile("/tmp/log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		panic(err)
 	}
@@ -45,13 +43,14 @@ type server struct {
 	idsMu sync.RWMutex
 	ids   map[int]struct{}
 
-	nodesMu   sync.RWMutex
-	neighbors []string
+	nodesMu       sync.RWMutex
+	upNeighbors   []string
+	downNeighbors []string
+	sameNeighbors []string
 }
 
 func (s *server) initHandler(_ maelstrom.Message) error {
 	s.nodeID = s.n.ID()
-	logger = log.WithField("id", s.nodeID)
 	return nil
 }
 
@@ -81,8 +80,41 @@ func (s *server) broadcastHandler(msg maelstrom.Message) error {
 
 func (s *server) broadcast(src string, body map[string]any) error {
 	s.nodesMu.RLock()
-	neighbors := s.neighbors
+	upNeighbors := s.upNeighbors
+	downNeighbors := s.downNeighbors
+	sameNeighbors := s.sameNeighbors
 	defer s.nodesMu.RUnlock()
+
+	var neighbors []string
+	if isController(src) {
+		neighbors = append(neighbors, upNeighbors...)
+		neighbors = append(neighbors, downNeighbors...)
+		neighbors = append(neighbors, sameNeighbors...)
+		log.Infof("controller: %v %v: %v", s.nodeID, src, neighbors)
+	} else {
+		sameLevel, err := s.isComingFromSameLevel(src)
+		if err != nil {
+			return err
+		}
+
+		if sameLevel {
+			neighbors = append(neighbors, upNeighbors...)
+			neighbors = append(neighbors, downNeighbors...)
+		} else {
+			neighbors = append(neighbors, sameNeighbors...)
+			comingFromUpwards, err := s.isComingFromUpwards(src)
+			if err != nil {
+				return err
+			}
+			if comingFromUpwards {
+				neighbors = append(neighbors, upNeighbors...)
+			} else {
+				neighbors = append(neighbors, downNeighbors...)
+			}
+		}
+	}
+
+	log.Infof("src: %v, cur: %v => %v", src, s.nodeID, neighbors)
 
 	for _, dst := range neighbors {
 		if dst == src || dst == s.nodeID {
@@ -118,17 +150,46 @@ func (s *server) getAllIDs() []int {
 }
 
 func (s *server) topologyHandler(msg maelstrom.Message) error {
-	s.nodesMu.Lock()
-	neighbors, err := topology(s.nodeID, s.n.NodeIDs())
+	up, down, same, err := topology(s.nodeID, s.n.NodeIDs())
 	if err != nil {
 		return err
 	}
-	s.neighbors = neighbors
+	s.nodesMu.Lock()
+	s.upNeighbors = up
+	s.downNeighbors = down
+	s.sameNeighbors = same
 	s.nodesMu.Unlock()
 
 	return s.n.Reply(msg, map[string]any{
 		"type": "topology_ok",
 	})
+}
+
+func (s *server) isComingFromUpwards(src string) (bool, error) {
+	srcID, err := id(src)
+	if err != nil {
+		return false, err
+	}
+
+	cur, err := id(s.nodeID)
+	if err != nil {
+		return false, err
+	}
+
+	return srcID < cur, nil
+}
+
+func (s *server) isComingFromSameLevel(src string) (bool, error) {
+	srcID, err := id(src)
+	if err != nil {
+		return false, err
+	}
+	cur, err := id(src)
+	if err != nil {
+		return false, err
+	}
+
+	return srcID%3 != cur%3, nil
 }
 
 type broadcastMsg struct {
@@ -177,13 +238,13 @@ func (b *broadcaster) close() {
 	b.cancel()
 }
 
-func topology(sNodeID string, nodes []string) ([]string, error) {
+func topology(sNodeID string, nodes []string) ([]string, []string, []string, error) {
 	ids := make([]int, len(nodes))
 	max := 0
 	for i, node := range nodes {
 		v, err := id(node)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 		ids[i] = v
 		if v > max {
@@ -193,18 +254,27 @@ func topology(sNodeID string, nodes []string) ([]string, error) {
 
 	nodeID, err := id(sNodeID)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	switch nodeID % 3 {
 	case 0:
-		return formatNodes(max, nodeID+3, nodeID-3, nodeID+1, nodeID+2), nil
+		return formatNodes(max, nodeID-3),
+			formatNodes(max, nodeID+3),
+			formatNodes(max, nodeID+1, nodeID+2),
+			nil
 	case 1:
-		return formatNodes(max, nodeID+3, nodeID-3, nodeID-1, nodeID+12), nil
+		return formatNodes(max, nodeID-3),
+			formatNodes(max, nodeID+3),
+			formatNodes(max, nodeID-1, nodeID+1),
+			nil
 	case 2:
-		return formatNodes(max, nodeID+3, nodeID-3, nodeID-2, nodeID-1), nil
+		return formatNodes(max, nodeID-3),
+			formatNodes(max, nodeID+3),
+			formatNodes(max, nodeID-1, nodeID-2),
+			nil
 	}
-	return nil, nil
+	return nil, nil, nil, nil
 }
 
 func formatNodes(max int, nodes ...int) []string {
@@ -224,4 +294,8 @@ func id(s string) (int, error) {
 		return 0, err
 	}
 	return i, nil
+}
+
+func isController(id string) bool {
+	return id[0] == 'c'
 }
