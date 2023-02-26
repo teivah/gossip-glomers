@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,9 +23,7 @@ func init() {
 
 func main() {
 	n := maelstrom.NewNode()
-	br := newBroadcaster(n, 10)
-	defer br.close()
-	s := &server{n: n, ids: make(map[int]struct{}), br: br}
+	s := &server{n: n, ids: make(map[int]struct{})}
 
 	n.Handle("init", s.initHandler)
 	n.Handle("broadcast", s.broadcastHandler)
@@ -42,7 +39,6 @@ type server struct {
 	n      *maelstrom.Node
 	nodeID string
 	id     int
-	br     *broadcaster
 
 	idsMu sync.RWMutex
 	ids   map[int]struct{}
@@ -141,10 +137,10 @@ func (s *server) broadcast(src string, body map[string]any) error {
 			continue
 		}
 
-		s.br.broadcast(broadcastMsg{
-			dst:  dst,
-			body: body,
-		})
+		dst := dst
+		go func() {
+			_ = s.n.Send(dst, body)
+		}()
 	}
 	return nil
 }
@@ -167,15 +163,6 @@ func (s *server) getAllIDs() []int {
 	s.idsMu.RUnlock()
 
 	return ids
-}
-
-func parseExists(exists string) map[string]bool {
-	split := strings.Split(exists, ",")
-	m := make(map[string]bool)
-	for _, s := range split {
-		m[s] = true
-	}
-	return m
 }
 
 func (s *server) topologyHandler(msg maelstrom.Message) error {
@@ -226,52 +213,6 @@ func (s *server) isComingFromSameLevel(src string) (bool, error) {
 	}
 
 	return srcID%3 != cur%3, nil
-}
-
-type broadcastMsg struct {
-	dst  string
-	body map[string]any
-}
-
-type broadcaster struct {
-	cancel context.CancelFunc
-	ch     chan broadcastMsg
-}
-
-func newBroadcaster(n *maelstrom.Node, worker int) *broadcaster {
-	ch := make(chan broadcastMsg)
-	ctx, cancel := context.WithCancel(context.Background())
-
-	for i := 0; i < worker; i++ {
-		go func() {
-			for {
-				select {
-				case msg := <-ch:
-					for {
-						if err := n.Send(msg.dst, msg.body); err != nil {
-							continue
-						}
-						break
-					}
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
-	}
-
-	return &broadcaster{
-		ch:     ch,
-		cancel: cancel,
-	}
-}
-
-func (b *broadcaster) broadcast(msg broadcastMsg) {
-	b.ch <- msg
-}
-
-func (b *broadcaster) close() {
-	b.cancel()
 }
 
 func id(s string) (int, error) {
