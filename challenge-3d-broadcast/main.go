@@ -3,12 +3,23 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"os"
 	"strconv"
 	"sync"
 
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
+	log "github.com/sirupsen/logrus"
 )
+
+var logger *log.Entry
+
+func init() {
+	f, err := os.OpenFile("/tmp/log", os.O_WRONLY|os.O_CREATE, 0755)
+	if err != nil {
+		panic(err)
+	}
+	log.SetOutput(f)
+}
 
 func main() {
 	n := maelstrom.NewNode()
@@ -40,6 +51,7 @@ type server struct {
 
 func (s *server) initHandler(_ maelstrom.Message) error {
 	s.nodeID = s.n.ID()
+	logger = log.WithField("id", s.nodeID)
 	return nil
 }
 
