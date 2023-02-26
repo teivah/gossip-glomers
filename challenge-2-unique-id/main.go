@@ -1,10 +1,13 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"log"
+	"time"
 
-	"github.com/google/uuid"
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 )
 
@@ -29,9 +32,15 @@ func (s *server) run(msg maelstrom.Message) error {
 		return err
 	}
 
+	var randomNum int64
+	err := binary.Read(rand.Reader, binary.BigEndian, &randomNum)
+	if err != nil {
+		return err
+	}
+
 	response := map[string]any{
 		"type": "generate_ok",
-		"id":   uuid.New(),
+		"id":   fmt.Sprintf("%v%v", time.Now().UnixNano(), randomNum),
 	}
 
 	return s.n.Reply(msg, response)
