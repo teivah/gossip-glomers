@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 
+	rbt "github.com/emirpasic/gods/trees/redblacktree"
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 	log "github.com/sirupsen/logrus"
 )
@@ -38,19 +41,23 @@ func main() {
 type server struct {
 	n      *maelstrom.Node
 	nodeID string
+	id     int
 	br     *broadcaster
 
 	idsMu sync.RWMutex
 	ids   map[int]struct{}
 
-	nodesMu       sync.RWMutex
-	upNeighbors   []string
-	downNeighbors []string
-	sameNeighbors []string
+	nodesMu sync.RWMutex
+	tree    *rbt.Tree
 }
 
 func (s *server) initHandler(_ maelstrom.Message) error {
 	s.nodeID = s.n.ID()
+	v, err := id(s.nodeID)
+	if err != nil {
+		return err
+	}
+	s.id = v
 	return nil
 }
 
@@ -78,40 +85,30 @@ func (s *server) broadcastHandler(msg maelstrom.Message) error {
 	})
 }
 
+func parseExists(exists string) map[string]bool {
+	split := strings.Split(exists, ",")
+	m := make(map[string]bool)
+	for _, s := range split {
+		m[s] = true
+	}
+	return m
+}
+
 func (s *server) broadcast(src string, body map[string]any) error {
 	s.nodesMu.RLock()
-	upNeighbors := s.upNeighbors
-	downNeighbors := s.downNeighbors
-	sameNeighbors := s.sameNeighbors
+
+	node := s.tree.GetNode(s.id)
 	defer s.nodesMu.RUnlock()
 
 	var neighbors []string
-	if isController(src) {
-		neighbors = append(neighbors, upNeighbors...)
-		neighbors = append(neighbors, downNeighbors...)
-		neighbors = append(neighbors, sameNeighbors...)
-		log.Infof("controller: %v %v: %v", s.nodeID, src, neighbors)
-	} else {
-		sameLevel, err := s.isComingFromSameLevel(src)
-		if err != nil {
-			return err
-		}
-
-		if sameLevel {
-			neighbors = append(neighbors, upNeighbors...)
-			neighbors = append(neighbors, downNeighbors...)
-		} else {
-			neighbors = append(neighbors, sameNeighbors...)
-			comingFromUpwards, err := s.isComingFromUpwards(src)
-			if err != nil {
-				return err
-			}
-			if comingFromUpwards {
-				neighbors = append(neighbors, upNeighbors...)
-			} else {
-				neighbors = append(neighbors, downNeighbors...)
-			}
-		}
+	if parent := node.Parent; parent != nil {
+		neighbors = append(neighbors, fmt.Sprintf("%v", parent.Value))
+	}
+	if left := node.Left; left != nil {
+		neighbors = append(neighbors, fmt.Sprintf("%v", left.Value))
+	}
+	if right := node.Right; right != nil {
+		neighbors = append(neighbors, fmt.Sprintf("%v", right.Value))
 	}
 
 	log.Infof("src: %v, cur: %v => %v", src, s.nodeID, neighbors)
@@ -150,14 +147,14 @@ func (s *server) getAllIDs() []int {
 }
 
 func (s *server) topologyHandler(msg maelstrom.Message) error {
-	up, down, same, err := topology(s.nodeID, s.n.NodeIDs())
-	if err != nil {
-		return err
+	tree := rbt.NewWithIntComparator()
+	// TODO Use number of nodes
+	for i := 0; i < 25; i++ {
+		tree.Put(i, fmt.Sprintf("n%d", i))
 	}
+
 	s.nodesMu.Lock()
-	s.upNeighbors = up
-	s.downNeighbors = down
-	s.sameNeighbors = same
+	s.tree = tree
 	s.nodesMu.Unlock()
 
 	return s.n.Reply(msg, map[string]any{
@@ -238,64 +235,10 @@ func (b *broadcaster) close() {
 	b.cancel()
 }
 
-func topology(sNodeID string, nodes []string) ([]string, []string, []string, error) {
-	ids := make([]int, len(nodes))
-	max := 0
-	for i, node := range nodes {
-		v, err := id(node)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		ids[i] = v
-		if v > max {
-			max = v
-		}
-	}
-
-	nodeID, err := id(sNodeID)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	switch nodeID % 3 {
-	case 0:
-		return formatNodes(max, nodeID-3),
-			formatNodes(max, nodeID+3),
-			formatNodes(max, nodeID+1, nodeID+2),
-			nil
-	case 1:
-		return formatNodes(max, nodeID-3),
-			formatNodes(max, nodeID+3),
-			formatNodes(max, nodeID-1, nodeID+1),
-			nil
-	case 2:
-		return formatNodes(max, nodeID-3),
-			formatNodes(max, nodeID+3),
-			formatNodes(max, nodeID-1, nodeID-2),
-			nil
-	}
-	return nil, nil, nil, nil
-}
-
-func formatNodes(max int, nodes ...int) []string {
-	res := make([]string, 0, len(nodes))
-	for _, node := range nodes {
-		if node > max || node < 0 {
-			continue
-		}
-		res = append(res, "n"+strconv.Itoa(node))
-	}
-	return res
-}
-
 func id(s string) (int, error) {
 	i, err := strconv.Atoi(s[1:])
 	if err != nil {
 		return 0, err
 	}
 	return i, nil
-}
-
-func isController(id string) bool {
-	return id[0] == 'c'
 }
