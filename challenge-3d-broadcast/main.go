@@ -52,11 +52,11 @@ type server struct {
 
 func (s *server) initHandler(_ maelstrom.Message) error {
 	s.nodeID = s.n.ID()
-	v, err := id(s.nodeID)
+	id, err := strconv.Atoi(s.nodeID[1:])
 	if err != nil {
 		return err
 	}
-	s.id = v
+	s.id = id
 	return nil
 }
 
@@ -164,12 +164,4 @@ func (s *server) topologyHandler(msg maelstrom.Message) error {
 	return s.n.Reply(msg, map[string]any{
 		"type": "topology_ok",
 	})
-}
-
-func id(s string) (int, error) {
-	i, err := strconv.Atoi(s[1:])
-	if err != nil {
-		return 0, err
-	}
-	return i, nil
 }
