@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"os"
 	"strconv"
 	"sync"
@@ -29,7 +28,6 @@ func main() {
 
 	n.Handle("init", s.initHandler)
 	n.Handle("broadcast", s.broadcastHandler)
-	n.Handle("forward", s.forwardHandler)
 	n.Handle("read", s.readHandler)
 	n.Handle("topology", s.topologyHandler)
 
@@ -58,27 +56,6 @@ func (s *server) initHandler(_ maelstrom.Message) error {
 	}
 	s.id = v
 	return nil
-}
-
-func (s *server) forwardHandler(msg maelstrom.Message) error {
-	var body map[string]any
-	if err := json.Unmarshal(msg.Body, &body); err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	_, err := s.n.SyncRPC(ctx, body["to"].(string), map[string]any{
-		"type":    "broadcast",
-		"message": int(body["message"].(float64)),
-	})
-	if err != nil {
-		return err
-	}
-
-	return s.n.Reply(msg, map[string]any{
-		"type": "forward_ok",
-	})
 }
 
 func (s *server) broadcastHandler(msg maelstrom.Message) error {
@@ -146,12 +123,6 @@ func (s *server) broadcast(src string, body map[string]any) error {
 	return nil
 }
 
-func random(max int) int {
-	s1 := rand.NewSource(time.Now().UnixNano())
-	r1 := rand.New(s1)
-	return r1.Int() % max
-}
-
 func (s *server) rpc(dst string, body map[string]any) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -181,8 +152,7 @@ func (s *server) getAllIDs() []int {
 
 func (s *server) topologyHandler(msg maelstrom.Message) error {
 	tree := btree.NewWithIntComparator(len(s.n.NodeIDs()))
-	// TODO Use number of nodes
-	for i := 0; i < 25; i++ {
+	for i := 0; i < len(s.n.NodeIDs()); i++ {
 		tree.Put(i, fmt.Sprintf("n%d", i))
 	}
 
@@ -193,33 +163,6 @@ func (s *server) topologyHandler(msg maelstrom.Message) error {
 	return s.n.Reply(msg, map[string]any{
 		"type": "topology_ok",
 	})
-}
-
-func (s *server) isComingFromUpwards(src string) (bool, error) {
-	srcID, err := id(src)
-	if err != nil {
-		return false, err
-	}
-
-	cur, err := id(s.nodeID)
-	if err != nil {
-		return false, err
-	}
-
-	return srcID < cur, nil
-}
-
-func (s *server) isComingFromSameLevel(src string) (bool, error) {
-	srcID, err := id(src)
-	if err != nil {
-		return false, err
-	}
-	cur, err := id(src)
-	if err != nil {
-		return false, err
-	}
-
-	return srcID%3 != cur%3, nil
 }
 
 func id(s string) (int, error) {
