@@ -1,4 +1,4 @@
-module github.com/teivah/gossip-glomers/challenge-6b-totally-available-transactions
+module github.com/teivah/gossip-glomers/challenge-6c-totally-available-transactions
 
 go 1.20
 
