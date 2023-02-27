@@ -83,3 +83,10 @@ In this solution, each node writes to its own bucket. Then, the solution relies 
 * We return the sum of all the values
 
 In the meantime, and even if it wasn't mandatory to pass all the tests (including the network partitions test), I introduced some forms of caching so if a node can't contact the store or another node, it will return the latest known value (availability > consistency). But again, it's just a question of tradeoff; if we remove the cache and return an error in case a node or the store is unreachable, we would favor consistency over availability.
+
+##
+
+5b: 
+* msgs-per-op 12.03
+* availability: 0.9991992
+* 
