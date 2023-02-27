@@ -14,6 +14,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	batchFrequency = 500 * time.Millisecond
+	maxRetry       = 100
+)
+
 func init() {
 	f, err := os.OpenFile("/tmp/maelstrom.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -24,12 +29,21 @@ func init() {
 
 func main() {
 	n := maelstrom.NewNode()
-	s := &server{n: n, ids: make(map[int]struct{})}
+	s := &server{n: n, ids: make(map[int]struct{}), broadcasts: make(map[string][]int)}
 
 	n.Handle("init", s.initHandler)
 	n.Handle("broadcast", s.broadcastHandler)
 	n.Handle("read", s.readHandler)
 	n.Handle("topology", s.topologyHandler)
+
+	go func() {
+		for {
+			select {
+			case <-time.After(batchFrequency):
+				s.batchRPC()
+			}
+		}
+	}()
 
 	if err := n.Run(); err != nil {
 		log.Fatal(err)
@@ -46,6 +60,9 @@ type server struct {
 
 	nodesMu sync.RWMutex
 	tree    *btree.Tree
+
+	broadcastsMu sync.Mutex
+	broadcasts   map[string][]int
 }
 
 func (s *server) initHandler(_ maelstrom.Message) error {
@@ -70,16 +87,32 @@ func (s *server) broadcastHandler(msg maelstrom.Message) error {
 		})
 	}()
 
-	id := int(body["message"].(float64))
-	s.idsMu.Lock()
-	if _, exists := s.ids[id]; exists {
+	if _, contains := body["message"]; contains {
+		message := int(body["message"].(float64))
+		s.idsMu.Lock()
+		if _, exists := s.ids[message]; exists {
+			s.idsMu.Unlock()
+			return nil
+		}
+		s.ids[message] = struct{}{}
 		s.idsMu.Unlock()
-		return nil
+		return s.broadcast(msg.Src, body)
 	}
-	s.ids[id] = struct{}{}
-	s.idsMu.Unlock()
 
-	return s.broadcast(msg.Src, body)
+	// Batch message
+	values := body["messages"].([]any)
+	messages := make([]int, 0, len(values))
+	s.idsMu.Lock()
+	for _, v := range values {
+		message := int(v.(float64))
+		if _, exists := s.ids[message]; exists {
+			continue
+		}
+		s.ids[message] = struct{}{}
+		messages = append(messages, message)
+	}
+	s.idsMu.Unlock()
+	return s.batchBroadcast(msg.Src, messages)
 }
 
 func (s *server) broadcast(src string, body map[string]any) error {
@@ -95,32 +128,87 @@ func (s *server) broadcast(src string, body map[string]any) error {
 
 	for _, children := range n.Children {
 		for _, entry := range children.Entries {
-			s := entry.Value.(string)
-			neighbors = append(neighbors, s)
+			neighbors = append(neighbors, entry.Value.(string))
 		}
 	}
 
+	message := int(body["message"].(float64))
+
+	s.broadcastsMu.Lock()
+	defer s.broadcastsMu.Unlock()
 	for _, dst := range neighbors {
 		if dst == src || dst == s.nodeID {
 			continue
 		}
 
+		s.broadcasts[dst] = append(s.broadcasts[dst], message)
+	}
+	return nil
+}
+
+func (s *server) batchBroadcast(src string, messages []int) error {
+	s.nodesMu.RLock()
+	n := s.tree.GetNode(s.id)
+	defer s.nodesMu.RUnlock()
+
+	var neighbors []string
+
+	if n.Parent != nil {
+		neighbors = append(neighbors, n.Parent.Entries[0].Value.(string))
+	}
+
+	for _, children := range n.Children {
+		for _, entry := range children.Entries {
+			neighbors = append(neighbors, entry.Value.(string))
+		}
+	}
+
+	s.broadcastsMu.Lock()
+	defer s.broadcastsMu.Unlock()
+	for _, dst := range neighbors {
+		if dst == src || dst == s.nodeID {
+			continue
+		}
+
+		for _, message := range messages {
+			s.broadcasts[dst] = append(s.broadcasts[dst], message)
+		}
+	}
+	return nil
+}
+
+func (s *server) batchRPC() {
+	s.broadcastsMu.Lock()
+	defer s.broadcastsMu.Unlock()
+
+	wg := sync.WaitGroup{}
+	for dst, messages := range s.broadcasts {
 		dst := dst
+		messages := messages
 		go func() {
-			if err := s.rpc(dst, body); err != nil {
-				for i := 0; i < 100; i++ {
-					if err := s.rpc(dst, body); err != nil {
-						// Sleep and retry
-						time.Sleep(time.Duration(i) * time.Second)
-						continue
-					}
-					return
-				}
+			if err := s.rpcWithRetry(dst, map[string]any{
+				"type":     "broadcast",
+				"messages": messages,
+			}, maxRetry); err != nil {
 				log.Error(err)
 			}
 		}()
 	}
-	return nil
+	s.broadcasts = make(map[string][]int)
+	wg.Wait()
+}
+
+func (s *server) rpcWithRetry(dst string, body map[string]any, retry int) error {
+	var err error
+	for i := 0; i < retry; i++ {
+		if err = s.rpc(dst, body); err != nil {
+			// Sleep and retry
+			time.Sleep(100 * time.Duration(i) * time.Millisecond)
+			continue
+		}
+		return nil
+	}
+	return err
 }
 
 func (s *server) rpc(dst string, body map[string]any) error {
