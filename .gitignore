@@ -1,6 +1,5 @@
 .idea
 **/target
-**/vendor
 **.iml
 **/bin
 **/test.txt

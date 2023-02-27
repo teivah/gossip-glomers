@@ -1,0 +1,18 @@
+# github.com/emirpasic/gods v1.18.1
+## explicit; go 1.2
+github.com/emirpasic/gods/containers
+github.com/emirpasic/gods/trees
+github.com/emirpasic/gods/trees/avltree
+github.com/emirpasic/gods/trees/btree
+github.com/emirpasic/gods/utils
+# github.com/jepsen-io/maelstrom/demo/go v0.0.0-20230113211434-22f433519054
+## explicit; go 1.19
+github.com/jepsen-io/maelstrom/demo/go
+# github.com/sirupsen/logrus v1.9.0
+## explicit; go 1.13
+github.com/sirupsen/logrus
+# golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8
+## explicit; go 1.17
+golang.org/x/sys/internal/unsafeheader
+golang.org/x/sys/unix
+golang.org/x/sys/windows
