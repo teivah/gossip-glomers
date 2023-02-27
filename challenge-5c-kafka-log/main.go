@@ -121,44 +121,34 @@ func (s *server) sendHandler(msg maelstrom.Message) error {
 		offset++
 	}
 
-	for ; ; offset++ {
-		if err := s.kv.CompareAndSwap(context.Background(),
-			keyLatest, offset-1, offset, true); err != nil {
-			log.Error("cas 2")
-			continue
-		}
-		break
+	if err := s.kv.Write(context.Background(), keyLatest, offset); err != nil {
+		return err
 	}
 
-	repeat := -1
-	for {
-		repeat++
-		keyEntry := fmt.Sprintf("%s%s", prefixEntry, key)
-		v, err := s.kv.Read(context.Background(), keyEntry)
-		if err != nil {
-			rpcErr := err.(*maelstrom.RPCError)
-			if rpcErr.Code == maelstrom.KeyDoesNotExist {
-				v = ""
-			} else {
-				return err
-			}
-		}
-
-		logs, err := toLogEntries(v.(string))
-		if err != nil {
+	keyEntry := fmt.Sprintf("%s%s", prefixEntry, key)
+	v, err := s.kv.Read(context.Background(), keyEntry)
+	if err != nil {
+		rpcErr := err.(*maelstrom.RPCError)
+		if rpcErr.Code == maelstrom.KeyDoesNotExist {
+			v = ""
+		} else {
 			return err
 		}
+	}
 
-		logs.entries = append(logs.entries, entry{
-			offset:  offset,
-			message: message,
-		})
+	logs, err := toLogEntries(v.(string))
+	if err != nil {
+		return err
+	}
 
-		err = s.kv.CompareAndSwap(context.Background(), keyEntry, v, logs.String(), true)
-		if err != nil {
-			continue
-		}
-		break
+	logs.entries = append(logs.entries, entry{
+		offset:  offset,
+		message: message,
+	})
+
+	err = s.kv.Write(context.Background(), keyEntry, logs.String())
+	if err != nil {
+		return err
 	}
 
 	return s.n.Reply(msg, map[string]any{
@@ -231,13 +221,6 @@ func (s *server) pollHandler(msg maelstrom.Message) error {
 		if err != nil {
 			return err
 		}
-
-		//for i := 0; i < len(logs.entries); i++ {
-		//	e := logs.entries[i]
-		//	if e.offset >= startingOffset {
-		//		res[key] = append(res[key], [2]int{e.offset, e.message})
-		//	}
-		//}
 
 		i := findOffset(logs, startingOffset)
 		for ; i < len(logs.entries); i++ {
