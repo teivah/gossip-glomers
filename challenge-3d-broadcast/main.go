@@ -1,12 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
+	"time"
 
 	avl "github.com/emirpasic/gods/trees/avltree"
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
@@ -27,6 +28,7 @@ func main() {
 
 	n.Handle("init", s.initHandler)
 	n.Handle("broadcast", s.broadcastHandler)
+	n.Handle("forward", s.forwardHandler)
 	n.Handle("read", s.readHandler)
 	n.Handle("topology", s.topologyHandler)
 
@@ -57,11 +59,43 @@ func (s *server) initHandler(_ maelstrom.Message) error {
 	return nil
 }
 
+/*
+forward
+message: 1000
+to: n1
+*/
+func (s *server) forwardHandler(msg maelstrom.Message) error {
+	var body map[string]any
+	if err := json.Unmarshal(msg.Body, &body); err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := s.n.SyncRPC(ctx, body["to"].(string), map[string]any{
+		"type":    "broadcast",
+		"message": int(body["message"].(float64)),
+	})
+	if err != nil {
+		return err
+	}
+
+	return s.n.Reply(msg, map[string]any{
+		"type": "forward_ok",
+	})
+}
+
 func (s *server) broadcastHandler(msg maelstrom.Message) error {
 	var body map[string]any
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return err
 	}
+
+	go func() {
+		_ = s.n.Reply(msg, map[string]any{
+			"type": "broadcast_ok",
+		})
+	}()
 
 	id := int(body["message"].(float64))
 	s.idsMu.Lock()
@@ -72,13 +106,7 @@ func (s *server) broadcastHandler(msg maelstrom.Message) error {
 	s.ids[id] = struct{}{}
 	s.idsMu.Unlock()
 
-	if err := s.broadcast(msg.Src, body); err != nil {
-		return err
-	}
-
-	return s.n.Reply(msg, map[string]any{
-		"type": "broadcast_ok",
-	})
+	return s.broadcast(msg.Src, body)
 }
 
 func (s *server) broadcast(src string, body map[string]any) error {
@@ -100,49 +128,41 @@ func (s *server) broadcast(src string, body map[string]any) error {
 		v := right.Value.(*node)
 		neighbors = append(neighbors, v.id)
 	}
-	v := n.Value.(*node)
-	if v.level%2 == 0 {
-		for _, sibling := range v.siblings {
-			neighbors = append(neighbors, sibling.id)
-		}
-	}
-
-	var exists []string
-	if e, contains := body["exists"]; contains {
-		s := e.(string)
-		exists = strings.Split(s, ",")
-	}
-	exists = append(exists, s.nodeID)
-	set := make(map[string]bool)
-	for _, s := range exists {
-		set[s] = true
-	}
-
-	var filtered []string
-	for _, dst := range neighbors {
-		if dst == src || dst == s.nodeID {
-			continue
-		}
-
-		filtered = append(filtered, dst)
-		exists = append(exists, dst)
-	}
-	body["exists"] = strings.Join(exists, ",")
+	//v := n.Value.(*node)
+	//if v.level%2 == 0 {
+	//	for _, sibling := range v.siblings {
+	//		neighbors = append(neighbors, sibling.id)
+	//	}
+	//}
 
 	for _, dst := range neighbors {
-		if set[dst] {
-			continue
-		}
 		if dst == src || dst == s.nodeID {
 			continue
 		}
 
 		dst := dst
 		go func() {
-			_ = s.n.Send(dst, body)
+			if err := s.rpc(dst, body); err != nil {
+				for i := 0; i < 100; i++ {
+					if err := s.rpc(dst, body); err != nil {
+						// Sleep and retry
+						time.Sleep(time.Duration(i) * time.Second)
+						continue
+					}
+					return
+				}
+				log.Error(err)
+			}
 		}()
 	}
 	return nil
+}
+
+func (s *server) rpc(dst string, body map[string]any) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := s.n.SyncRPC(ctx, dst, body)
+	return err
 }
 
 func (s *server) readHandler(msg maelstrom.Message) error {
