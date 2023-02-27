@@ -22,7 +22,7 @@ In this solution, I use something other than the suggested topology. As we don't
 
 [Solution](https://github.com/teivah/gossip-glomers/blob/main/challenge-3c-broadcast/main.go)
 
-Same code as [#3b](#3b--multi-node-broadcast). It turns out that a dumb solution to broadcast to all the nodes also tackles solves network partition issues 😅. Same as before, in [#3d](#3d--efficient-broadcast-part-i), the solution will contain some proper retry.
+Same code as [#3b](#3b--multi-node-broadcast). It turns out that a dumb solution to broadcast to all the nodes also solves network partition issues 😅. Same as before, in [#3d](#3d--efficient-broadcast-part-i), the solution will contain some proper retry.
 
 ### #3d: Efficient Broadcast, Part I
 
