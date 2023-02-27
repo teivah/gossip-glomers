@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	avl "github.com/emirpasic/gods/trees/avltree"
+	"github.com/emirpasic/gods/trees/btree"
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 	log "github.com/sirupsen/logrus"
 )
@@ -47,7 +47,7 @@ type server struct {
 	ids   map[int]struct{}
 
 	nodesMu sync.RWMutex
-	tree    *avl.Tree
+	tree    *btree.Tree
 }
 
 func (s *server) initHandler(_ maelstrom.Message) error {
@@ -112,68 +112,50 @@ func (s *server) broadcastHandler(msg maelstrom.Message) error {
 
 func (s *server) broadcast(src string, body map[string]any) error {
 	s.nodesMu.RLock()
-
 	n := s.tree.GetNode(s.id)
 	defer s.nodesMu.RUnlock()
 
 	var neighbors []string
-	if parent := n.Parent; parent != nil {
-		v := parent.Value.(*node)
-		neighbors = append(neighbors, v.id)
-	}
-	if left := n.Children[0]; left != nil {
-		v := left.Value.(*node)
-		neighbors = append(neighbors, v.id)
-	}
-	if right := n.Children[1]; right != nil {
-		v := right.Value.(*node)
-		neighbors = append(neighbors, v.id)
+
+	if n.Parent != nil {
+		neighbors = append(neighbors, n.Parent.Entries[0].Value.(string))
 	}
 
-	v := n.Value.(*node)
-
-	if v.level == 3 {
-		if len(v.leftSiblings) != 0 && random(len(v.siblings)/2) == 0 {
-			//log.Infof("left: level=%v, sibling=%v", v.level, len(v.siblings))
-			id := random(len(v.leftSiblings))
-			neighbors = append(neighbors, v.leftSiblings[id].id)
+	for _, children := range n.Children {
+		for _, entry := range children.Entries {
+			s := entry.Value.(string)
+			neighbors = append(neighbors, s)
 		}
-
-		if len(v.rightSiblings) != 0 && random(len(v.siblings)/2) == 0 {
-			//log.Infof("right: level=%v, sibling=%v", v.level, len(v.siblings))
-			id := random(len(v.rightSiblings))
-			neighbors = append(neighbors, v.rightSiblings[id].id)
-		}
-
-		//if v.rightSibling != nil {
-		//	neighbors = append(neighbors, v.rightSibling.id)
-		//}
-		//if v.leftSibling != nil {
-		//	neighbors = append(neighbors, v.leftSibling.id)
-		//}
-
-		//if v.leftMost {
-		//	neighbors = append(neighbors, v.rightSibling.id)
-		//}
-		//if v.rightMost {
-		//	neighbors = append(neighbors, v.leftSibling.id)
-		//}
-
-		//for _, sibling := range v.siblings {
-		//	neighbors = append(neighbors, sibling.id)
-		//}
-		//if len(v.siblings) != 0 {
-		//	neighbors = append(neighbors, v.siblings[0].id)
-		//}
-		//neighbors = append(neighbors, v.leftSibling.id)
-		//neighbors = append(neighbors, v.rightSibling.id)
-
-		//if v.leftMost {
-		//	neighbors = append(neighbors, v.rightSibling.id)
-		//} else if v.rightMost {
-		//	neighbors = append(neighbors, v.leftSibling.id)
-		//}
 	}
+
+	//if id == len(n.Entries)-1 {
+	//	for i := id; i < len(n.Children); i++ {
+	//		child := n.Children[i]
+	//		for _, entry := range child.Entries {
+	//			s := entry.Value.(string)
+	//			neighbors = append(neighbors, s)
+	//		}
+	//	}
+	//} else {
+	//	if id < len(n.Children) {
+	//		child := n.Children[id]
+	//		for _, entry := range child.Entries {
+	//			s := entry.Value.(string)
+	//			neighbors = append(neighbors, s)
+	//		}
+	//	}
+	//}
+
+	log.Infof("node=%v: %v", s.nodeID, neighbors)
+
+	//for _, children := range n.Children {
+	//	if children != nil {
+	//		for _, entry := range children.Entries {
+	//			s := entry.Value.(string)
+	//			neighbors = append(neighbors, s)
+	//		}
+	//	}
+	//}
 
 	for _, dst := range neighbors {
 		if dst == src || dst == s.nodeID {
@@ -232,66 +214,14 @@ func (s *server) getAllIDs() []int {
 }
 
 func (s *server) topologyHandler(msg maelstrom.Message) error {
-	tree := avl.NewWithIntComparator()
+	tree := btree.NewWithIntComparator(25)
 	// TODO Use number of nodes
 	for i := 0; i < 25; i++ {
 		tree.Put(i, fmt.Sprintf("n%d", i))
 	}
-	root := toNode(tree)
-	ftree := avl.NewWith(func(a, b interface{}) int {
-		x := a.(int)
-		y := b.(int)
-		return x - y
-	})
-	dfs(ftree, root)
-
-	//left := getLeftChild(ftree.Root)
-	//right := getRightChild(ftree.Root)
-	//setLeftMostChildren(ftree.Root.Children[0], right)
-	//setRightChildren(ftree.Root.Children[1], left)
-
-	//lefts := make(map[int]*node)
-	//getLeftChildren(ftree.Root.Children[0], 1, lefts)
-	//rights := make(map[int]*node)
-	//getRightChildren(ftree.Root.Children[1], 1, rights)
-
-	//setSiblings(ftree.Root.Children[0].Children[0], ftree.Root.Children[0].Children[1],
-	//	ftree.Root.Children[1].Children[0], ftree.Root.Children[1].Children[1])
-
-	lefts := make(map[int][]*node)
-	getLevels(ftree.Root.Children[0], 1, lefts)
-
-	rights := make(map[int][]*node)
-	getLevels(ftree.Root.Children[1], 1, rights)
-
-	for level, leftNodes := range lefts {
-		rightNodes := rights[level]
-		for _, n := range leftNodes {
-			n.rightSiblings = rightNodes
-			n.siblings = append(n.siblings, rightNodes...)
-		}
-		for _, n := range rightNodes {
-			n.leftSiblings = leftNodes
-			n.siblings = append(n.siblings, leftNodes...)
-		}
-	}
-
-	//for level, rightNodes := range rights {
-	//	if
-	//}
-
-	//for level, n := range lefts {
-	//	n.leftMost = true
-	//	n.rightSibling = rights[level]
-	//}
-	//
-	//for level, n := range rights {
-	//	n.rightMost = true
-	//	n.leftSibling = lefts[level]
-	//}
 
 	s.nodesMu.Lock()
-	s.tree = ftree
+	s.tree = tree
 	s.nodesMu.Unlock()
 
 	return s.n.Reply(msg, map[string]any{
@@ -332,179 +262,4 @@ func id(s string) (int, error) {
 		return 0, err
 	}
 	return i, nil
-}
-
-type node struct {
-	parent *node
-	left   *node
-	right  *node
-	level  int
-	value  int
-	id     string
-
-	leftSibling   *node
-	rightSibling  *node
-	leftMost      bool
-	rightMost     bool
-	leftSiblings  []*node
-	rightSiblings []*node
-	siblings      []*node
-}
-
-func toNode(tree *avl.Tree) *node {
-	v := tree.GetNode(0)
-	for v.Parent != nil {
-		v = v.Parent
-	}
-
-	root := &node{value: v.Key.(int), id: fmt.Sprintf("%v", v.Value)}
-
-	type entry struct {
-		treeNode *avl.Node
-		parent   *node
-		node     *node
-		left     bool
-		right    bool
-	}
-
-	var q []entry
-	q = append(q, entry{
-		treeNode: v,
-		node:     root,
-		left:     true,
-		right:    true,
-	})
-
-	level := -1
-	for len(q) != 0 {
-		count := len(q)
-		var siblings []*node
-		//var leftSibling *node
-		//var rightSibling *node
-		level++
-
-		for i := 0; i < count; i++ {
-			e := q[0]
-			q = q[1:]
-
-			if child := e.treeNode.Children[0]; child != nil {
-				n := &node{
-					parent: e.parent,
-					value:  e.treeNode.Children[0].Key.(int),
-					id:     fmt.Sprintf("%v", e.treeNode.Children[0].Value),
-					level:  level,
-				}
-				siblings = append(siblings, n)
-
-				e.node.left = n
-
-				q = append(q, entry{
-					treeNode: e.treeNode.Children[0],
-					parent:   e.node,
-					node:     n,
-					left:     e.left,
-				})
-			}
-			if child := e.treeNode.Children[1]; child != nil {
-				n := &node{
-					parent: e.parent,
-					value:  e.treeNode.Children[1].Key.(int),
-					id:     fmt.Sprintf("%v", e.treeNode.Children[1].Value),
-					level:  level,
-				}
-				siblings = append(siblings, n)
-
-				e.node.right = n
-
-				q = append(q, entry{
-					treeNode: e.treeNode.Children[1],
-					parent:   e.node,
-					node:     n,
-					left:     e.right,
-				})
-			}
-		}
-
-		//for _, n := range siblings {
-		//n.siblings = siblings
-		//n.leftSibling = leftSibling
-		//n.rightSibling = rightSibling
-		//}
-	}
-
-	return root
-}
-
-func dfs(ftree *avl.Tree, node *node) {
-	if node == nil {
-		return
-	}
-
-	ftree.Put(node.value, node)
-	dfs(ftree, node.left)
-	dfs(ftree, node.right)
-}
-
-func setSiblings(exteriorLeft, interiorLeft, interiorRight, exteriorRight *avl.Node) {
-	if exteriorLeft == nil && interiorLeft == nil && interiorRight == nil && exteriorRight == nil {
-		return
-	}
-
-	if exteriorLeft != nil && exteriorRight != nil {
-		l := exteriorLeft.Value.(*node)
-		r := exteriorRight.Value.(*node)
-		l.rightSibling = r
-		r.leftSibling = l
-
-		exteriorLeft = exteriorLeft.Children[0]
-		exteriorRight = exteriorRight.Children[1]
-	} else {
-		exteriorLeft = nil
-		exteriorRight = nil
-	}
-
-	if interiorLeft != nil && interiorRight != nil {
-		l := interiorLeft.Value.(*node)
-		r := interiorRight.Value.(*node)
-		l.rightSibling = r
-		r.leftSibling = l
-
-		interiorLeft = interiorLeft.Children[1]
-		interiorRight = interiorRight.Children[0]
-	} else {
-		interiorLeft = nil
-		interiorRight = nil
-	}
-
-	setSiblings(exteriorLeft, interiorLeft, interiorRight, exteriorRight)
-}
-
-func getLevels(n *avl.Node, level int, levels map[int][]*node) {
-	if n == nil {
-		return
-	}
-
-	v := n.Value.(*node)
-	levels[level] = append(levels[level], v)
-
-	getLevels(n.Children[0], level+1, levels)
-	getLevels(n.Children[1], level+1, levels)
-}
-
-func getLeftChildren(n *avl.Node, level int, levels map[int]*node) {
-	if n == nil {
-		return
-	}
-	v := n.Value.(*node)
-	levels[level] = v
-	getLeftChildren(n.Children[0], level+1, levels)
-}
-
-func getRightChildren(n *avl.Node, level int, levels map[int]*node) {
-	if n == nil {
-		return
-	}
-	v := n.Value.(*node)
-	levels[level] = v
-	getRightChildren(n.Children[1], level+1, levels)
 }

@@ -4,22 +4,39 @@ import (
 	"fmt"
 	"testing"
 
-	avl "github.com/emirpasic/gods/trees/avltree"
+	"github.com/emirpasic/gods/trees/btree"
 )
 
 func Test_server_topologyHandler(t *testing.T) {
-	tree := avl.NewWithIntComparator()
+	tree := btree.NewWithIntComparator(25)
 	// TODO Use number of nodes
 	for i := 0; i < 25; i++ {
 		tree.Put(i, fmt.Sprintf("n%d", i))
 	}
 
-	root := toNode(tree)
-	ftree := avl.NewWith(func(a, b interface{}) int {
-		x := a.(int)
-		y := b.(int)
-		return y - x
-	})
-	dfs(ftree, root)
-	fmt.Println(ftree)
+	fmt.Println(tree)
+
+	i := 7
+
+	n := tree.GetNode(i)
+	//id := 11
+
+	for id := 0; id < 25; id++ {
+
+		var neighbors []string
+
+		if n.Parent != nil {
+			neighbors = append(neighbors, n.Parent.Entries[0].Value.(string))
+		}
+
+		for _, children := range n.Children {
+			for _, entry := range children.Entries {
+				s := entry.Value.(string)
+				neighbors = append(neighbors, s)
+			}
+		}
+		fmt.Println(neighbors)
+
+	}
+
 }
