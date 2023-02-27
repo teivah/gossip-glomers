@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"os"
 	"strconv"
 	"sync"
@@ -128,12 +129,48 @@ func (s *server) broadcast(src string, body map[string]any) error {
 		v := right.Value.(*node)
 		neighbors = append(neighbors, v.id)
 	}
-	//v := n.Value.(*node)
-	//if v.level%2 == 0 {
-	//	for _, sibling := range v.siblings {
-	//		neighbors = append(neighbors, sibling.id)
-	//	}
-	//}
+
+	v := n.Value.(*node)
+	if v.level >= 2 {
+		if len(v.leftSiblings) != 0 {
+			id := random(len(v.leftSiblings))
+			neighbors = append(neighbors, v.leftSiblings[id].id)
+		}
+
+		if len(v.rightSiblings) != 0 {
+			id := random(len(v.rightSiblings))
+			neighbors = append(neighbors, v.rightSiblings[id].id)
+		}
+
+		//if v.rightSibling != nil {
+		//	neighbors = append(neighbors, v.rightSibling.id)
+		//}
+		//if v.leftSibling != nil {
+		//	neighbors = append(neighbors, v.leftSibling.id)
+		//}
+
+		//if v.leftMost {
+		//	neighbors = append(neighbors, v.rightSibling.id)
+		//}
+		//if v.rightMost {
+		//	neighbors = append(neighbors, v.leftSibling.id)
+		//}
+
+		//for _, sibling := range v.siblings {
+		//	neighbors = append(neighbors, sibling.id)
+		//}
+		//if len(v.siblings) != 0 {
+		//	neighbors = append(neighbors, v.siblings[0].id)
+		//}
+		//neighbors = append(neighbors, v.leftSibling.id)
+		//neighbors = append(neighbors, v.rightSibling.id)
+
+		//if v.leftMost {
+		//	neighbors = append(neighbors, v.rightSibling.id)
+		//} else if v.rightMost {
+		//	neighbors = append(neighbors, v.leftSibling.id)
+		//}
+	}
 
 	for _, dst := range neighbors {
 		if dst == src || dst == s.nodeID {
@@ -156,6 +193,12 @@ func (s *server) broadcast(src string, body map[string]any) error {
 		}()
 	}
 	return nil
+}
+
+func random(max int) int {
+	s1 := rand.NewSource(time.Now().UnixNano())
+	r1 := rand.New(s1)
+	return r1.Int() % max
 }
 
 func (s *server) rpc(dst string, body map[string]any) error {
@@ -198,6 +241,45 @@ func (s *server) topologyHandler(msg maelstrom.Message) error {
 		return x - y
 	})
 	dfs(ftree, root)
+
+	//left := getLeftChild(ftree.Root)
+	//right := getRightChild(ftree.Root)
+	//setLeftMostChildren(ftree.Root.Children[0], right)
+	//setRightChildren(ftree.Root.Children[1], left)
+
+	//lefts := make(map[int]*node)
+	//getLeftChildren(ftree.Root.Children[0], 1, lefts)
+	//rights := make(map[int]*node)
+	//getRightChildren(ftree.Root.Children[1], 1, rights)
+
+	//setSiblings(ftree.Root.Children[0].Children[0], ftree.Root.Children[0].Children[1],
+	//	ftree.Root.Children[1].Children[0], ftree.Root.Children[1].Children[1])
+
+	lefts := make(map[int][]*node)
+	getLevels(ftree.Root.Children[0], 1, lefts)
+
+	rights := make(map[int][]*node)
+	getLevels(ftree.Root.Children[1], 1, rights)
+
+	for level, leftNodes := range lefts {
+		rightNodes := rights[level]
+		for _, n := range leftNodes {
+			n.rightSiblings = rightNodes
+		}
+		for _, n := range rightNodes {
+			n.leftSiblings = leftNodes
+		}
+	}
+
+	//for level, n := range lefts {
+	//	n.leftMost = true
+	//	n.rightSibling = rights[level]
+	//}
+	//
+	//for level, n := range rights {
+	//	n.rightMost = true
+	//	n.leftSibling = lefts[level]
+	//}
 
 	s.nodesMu.Lock()
 	s.tree = ftree
@@ -251,6 +333,13 @@ type node struct {
 	siblings []*node
 	value    int
 	id       string
+
+	leftSibling   *node
+	rightSibling  *node
+	leftMost      bool
+	rightMost     bool
+	leftSiblings  []*node
+	rightSiblings []*node
 }
 
 func toNode(tree *avl.Tree) *node {
@@ -265,18 +354,24 @@ func toNode(tree *avl.Tree) *node {
 		treeNode *avl.Node
 		parent   *node
 		node     *node
+		left     bool
+		right    bool
 	}
 
 	var q []entry
 	q = append(q, entry{
 		treeNode: v,
 		node:     root,
+		left:     true,
+		right:    true,
 	})
 
 	level := -1
 	for len(q) != 0 {
 		count := len(q)
 		var siblings []*node
+		//var leftSibling *node
+		//var rightSibling *node
 		level++
 
 		for i := 0; i < count; i++ {
@@ -298,6 +393,7 @@ func toNode(tree *avl.Tree) *node {
 					treeNode: e.treeNode.Children[0],
 					parent:   e.node,
 					node:     n,
+					left:     e.left,
 				})
 			}
 			if child := e.treeNode.Children[1]; child != nil {
@@ -315,12 +411,15 @@ func toNode(tree *avl.Tree) *node {
 					treeNode: e.treeNode.Children[1],
 					parent:   e.node,
 					node:     n,
+					left:     e.right,
 				})
 			}
 		}
 
 		for _, n := range siblings {
 			n.siblings = siblings
+			//n.leftSibling = leftSibling
+			//n.rightSibling = rightSibling
 		}
 	}
 
@@ -335,4 +434,68 @@ func dfs(ftree *avl.Tree, node *node) {
 	ftree.Put(node.value, node)
 	dfs(ftree, node.left)
 	dfs(ftree, node.right)
+}
+
+func setSiblings(exteriorLeft, interiorLeft, interiorRight, exteriorRight *avl.Node) {
+	if exteriorLeft == nil && interiorLeft == nil && interiorRight == nil && exteriorRight == nil {
+		return
+	}
+
+	if exteriorLeft != nil && exteriorRight != nil {
+		l := exteriorLeft.Value.(*node)
+		r := exteriorRight.Value.(*node)
+		l.rightSibling = r
+		r.leftSibling = l
+
+		exteriorLeft = exteriorLeft.Children[0]
+		exteriorRight = exteriorRight.Children[1]
+	} else {
+		exteriorLeft = nil
+		exteriorRight = nil
+	}
+
+	if interiorLeft != nil && interiorRight != nil {
+		l := interiorLeft.Value.(*node)
+		r := interiorRight.Value.(*node)
+		l.rightSibling = r
+		r.leftSibling = l
+
+		interiorLeft = interiorLeft.Children[1]
+		interiorRight = interiorRight.Children[0]
+	} else {
+		interiorLeft = nil
+		interiorRight = nil
+	}
+
+	setSiblings(exteriorLeft, interiorLeft, interiorRight, exteriorRight)
+}
+
+func getLevels(n *avl.Node, level int, levels map[int][]*node) {
+	if n == nil {
+		return
+	}
+
+	v := n.Value.(*node)
+	levels[level] = append(levels[level], v)
+
+	getLevels(n.Children[0], level+1, levels)
+	getLevels(n.Children[1], level+1, levels)
+}
+
+func getLeftChildren(n *avl.Node, level int, levels map[int]*node) {
+	if n == nil {
+		return
+	}
+	v := n.Value.(*node)
+	levels[level] = v
+	getLeftChildren(n.Children[0], level+1, levels)
+}
+
+func getRightChildren(n *avl.Node, level int, levels map[int]*node) {
+	if n == nil {
+		return
+	}
+	v := n.Value.(*node)
+	levels[level] = v
+	getRightChildren(n.Children[1], level+1, levels)
 }
