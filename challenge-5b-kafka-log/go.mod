@@ -1,4 +1,4 @@
-module github.com/teivah/gossip-glomers/challenge-5a-kafka-log
+module github.com/teivah/gossip-glomers/challenge-5b-kafka-log
 
 go 1.20
 

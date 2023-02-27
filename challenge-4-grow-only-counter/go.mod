@@ -1,4 +1,4 @@
-module github.com/teivah/gossip-glomers/challenge-1-echo
+module github.com/teivah/gossip-glomers/challenge-4-grow-only-counter
 
 go 1.20
 
