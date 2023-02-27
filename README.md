@@ -69,3 +69,7 @@ So, instead of sending a single message value, we can now broadcast multiple mes
 It's also interesting to play with the frequency. Increasing the value means decreasing messages-per-operation but increasing the latencies. No solution is perfect; everything is a question of tradeoffs and what's the best balance given a specific context.
 
 The solution also handles network partitions.
+
+--
+* Median latency: 764ms
+* Maximum latency: 1087ms
