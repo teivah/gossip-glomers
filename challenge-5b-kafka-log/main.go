@@ -96,7 +96,7 @@ func (s *server) sendHandler(msg maelstrom.Message) error {
 	for ; ; offset++ {
 		if err := s.kv.CompareAndSwap(context.Background(),
 			keyLatest, offset-1, offset, true); err != nil {
-			log.Error("cas 2")
+			log.Warnf("cas retry: %v", err)
 			continue
 		}
 		break

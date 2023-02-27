@@ -84,9 +84,43 @@ In this solution, each node writes to its own bucket. Then, the solution relies 
 
 In the meantime, and even if it wasn't mandatory to pass all the tests (including the network partitions test), I introduced some forms of caching so if a node can't contact the store or another node, it will return the latest known value (availability > consistency). But again, it's just a question of tradeoff; if we remove the cache and return an error in case a node or the store is unreachable, we would favor consistency over availability.
 
-##
+## Challenge #5: Kafka-Style Log
 
-5b: 
-* msgs-per-op 12.03
-* availability: 0.9991992
-* 
+### #5a: Single-Node Kafka-Style Log
+
+[Solution](https://github.com/teivah/gossip-glomers/blob/main/challenge-5a-kafka-log/main.go)
+
+Not much to say here. We store everything in memory with a map per `key`. As the logs are ordered, we can find the proper offset when replying to a `request` using a binary search.
+
+### #5b: Multi-Node Kafka-Style Log
+
+[Solution](https://github.com/teivah/gossip-glomers/blob/main/challenge-5b-kafka-log/main.go)
+
+In this first distributed implementation, I decided to use three bucket types (by bucket, I mean entries in the store):
+* One to store the latest offset for a given key
+* One to store the latest committed offset for a given key
+* And the last bucket to store the messages
+
+For the latter, I chose to store a single entry per message. The main message is that I don't have to rely on `CompareAndSwap` to store messages. I only use it to store the latest offset. During the tests, it triggers a CAS retry about 40 times. Yet, the main downside is that the `poll` has a linear time complexity: we start from the provided offset, and then iterate until we reach an `KeyDoesNotExist` error. 
+
+This solution leads to the following results: 
+
+* Messages-per-operation: 12.03
+* Availability: 0.9991992
+* Throughput peak: ~300hz
+
+### #5c: Efficient Kafka-Style Log
+
+Here, we are asked to improve the overall latency. The solution I took is to switch from one entry per message to one entry per key (hence, one entry contains multiple messages). To do that while passing the test, my solution routes the message for a given key to the same instance using a hashing mechanism. That allows me to get rid of expensive CAS fail-and-retry operations. All the writes are done using `Write` using a shared mutex to protect concurrent writes that would result (if no mutex) in consistency issues.
+
+Metrics-wise:
+
+* Messages-per-operation: 6.88
+* Availability: 0.99511856
+* Throughput peak: ~350hz
+
+So a small drop regarding availability, which can probably be explained by the fact that a `send` request needs to be forwarded synchronously to another node if the hashing doesn't match the node ID. Yet, it increases the messages-per-operation and the throughput.
+
+One remark, though. In Kafka, this routing to the same node isn't achieved at the topic level. Imagine that a 3-node Kafka cluster has only one topic; we don't want to have only one node being a hot spot. Hence, Kafka introduces the concept of a partition, basically a sub-split per topic. If I wanted to improve my solution, I should probably do the same.
+
+Also, another downside is that now I have only one entry for all the messages that belong to a specific key. If we receive too many messages, at some point, it will become an issue. To tackle that, and if I recall correctly, Kafka introduces the concept of segments, basically splitting the partitions into chunks (and a rotation either based on time or on size). Again, if I wanted to improve my solution, I should probably do it as well.
