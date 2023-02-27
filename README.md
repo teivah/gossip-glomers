@@ -70,6 +70,16 @@ It's also interesting to play with the frequency. Increasing the value means dec
 
 The solution also handles network partitions.
 
---
-* Median latency: 764ms
-* Maximum latency: 1087ms
+## Challenge #4: Grow-Only Counter
+
+[Solution](https://github.com/teivah/gossip-glomers/blob/main/challenge-4-grow-only-counter/main.go)
+
+We need to work with a sequentially-consistent store. The main impact is that when doing a read, the only client that will have the guarantee to get the latest value is the one who performed the write.
+
+In this solution, each node writes to its own bucket. Then, the solution relies on some form of coordination among the nodes before returning a read request:
+* Iterate over all the nodes of the cluster:
+  * If the node is the current node, we perform a read in the store directly using `ReadInt`
+  * Otherwise, it contacts the other node via a `SyncRPC` call to ask it to return the latest value (and this node will perform the read in the store using `ReadInt` as well)
+* We return the sum of all the values
+
+In the meantime, and even if it wasn't mandatory to pass all the tests (including the network partitions test), I introduced some forms of caching so if a node can't contact the store or another node, it will return the latest known value (availability > consistency). But again, it's just a question of tradeoff; if we remove the cache and return an error in case a node or the store is unreachable, we would favor consistency over availability.
