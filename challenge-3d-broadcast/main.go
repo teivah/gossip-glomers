@@ -132,12 +132,12 @@ func (s *server) broadcast(src string, body map[string]any) error {
 
 	v := n.Value.(*node)
 	if v.level >= 2 {
-		if len(v.leftSiblings) != 0 {
+		if len(v.leftSiblings) != 0 && random(5-v.level) == 0 {
 			id := random(len(v.leftSiblings))
 			neighbors = append(neighbors, v.leftSiblings[id].id)
 		}
 
-		if len(v.rightSiblings) != 0 {
+		if len(v.rightSiblings) != 0 && random(5-v.level) == 0 {
 			id := random(len(v.rightSiblings))
 			neighbors = append(neighbors, v.rightSiblings[id].id)
 		}
