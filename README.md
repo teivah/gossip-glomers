@@ -1,5 +1,7 @@
 # Gossip Glomers Challenge
 
+My solutions to Gossip Glomers, a series of distributed systems challenges brought by [Fly.io](https://fly.io/) and [Kyle Kingsbury](https://aphyr.com/about) (the amazing author of Jepsen).
+
 ## Challenge #2: Unique ID Generation
 
 [Solution](https://github.com/teivah/gossip-glomers/blob/main/challenge-2-unique-id/main.go)
