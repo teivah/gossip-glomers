@@ -131,13 +131,16 @@ func (s *server) broadcast(src string, body map[string]any) error {
 	}
 
 	v := n.Value.(*node)
-	if v.level >= 2 {
-		if len(v.leftSiblings) != 0 && random(5-v.level) == 0 {
+
+	if v.level == 3 {
+		if len(v.leftSiblings) != 0 && random(len(v.siblings)/2) == 0 {
+			//log.Infof("left: level=%v, sibling=%v", v.level, len(v.siblings))
 			id := random(len(v.leftSiblings))
 			neighbors = append(neighbors, v.leftSiblings[id].id)
 		}
 
-		if len(v.rightSiblings) != 0 && random(5-v.level) == 0 {
+		if len(v.rightSiblings) != 0 && random(len(v.siblings)/2) == 0 {
+			//log.Infof("right: level=%v, sibling=%v", v.level, len(v.siblings))
 			id := random(len(v.rightSiblings))
 			neighbors = append(neighbors, v.rightSiblings[id].id)
 		}
@@ -265,11 +268,17 @@ func (s *server) topologyHandler(msg maelstrom.Message) error {
 		rightNodes := rights[level]
 		for _, n := range leftNodes {
 			n.rightSiblings = rightNodes
+			n.siblings = append(n.siblings, rightNodes...)
 		}
 		for _, n := range rightNodes {
 			n.leftSiblings = leftNodes
+			n.siblings = append(n.siblings, leftNodes...)
 		}
 	}
+
+	//for level, rightNodes := range rights {
+	//	if
+	//}
 
 	//for level, n := range lefts {
 	//	n.leftMost = true
@@ -326,13 +335,12 @@ func id(s string) (int, error) {
 }
 
 type node struct {
-	parent   *node
-	left     *node
-	right    *node
-	level    int
-	siblings []*node
-	value    int
-	id       string
+	parent *node
+	left   *node
+	right  *node
+	level  int
+	value  int
+	id     string
 
 	leftSibling   *node
 	rightSibling  *node
@@ -340,6 +348,7 @@ type node struct {
 	rightMost     bool
 	leftSiblings  []*node
 	rightSiblings []*node
+	siblings      []*node
 }
 
 func toNode(tree *avl.Tree) *node {
@@ -416,11 +425,11 @@ func toNode(tree *avl.Tree) *node {
 			}
 		}
 
-		for _, n := range siblings {
-			n.siblings = siblings
-			//n.leftSibling = leftSibling
-			//n.rightSibling = rightSibling
-		}
+		//for _, n := range siblings {
+		//n.siblings = siblings
+		//n.leftSibling = leftSibling
+		//n.rightSibling = rightSibling
+		//}
 	}
 
 	return root
