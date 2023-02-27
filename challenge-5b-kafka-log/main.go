@@ -86,27 +86,20 @@ func (s *server) sendHandler(msg maelstrom.Message) error {
 		rpcErr := err.(*maelstrom.RPCError)
 		if rpcErr.Code == maelstrom.KeyDoesNotExist {
 			offset = 0
-
-			for ; ; offset++ {
-				if err := s.kv.CompareAndSwap(context.Background(),
-					keyLatest, offset-1, offset, true); err != nil {
-					continue
-				}
-				break
-			}
 		} else {
 			return err
 		}
 	} else {
 		offset++
+	}
 
-		for ; ; offset++ {
-			if err := s.kv.CompareAndSwap(context.Background(),
-				keyLatest, offset-1, offset, true); err != nil {
-				continue
-			}
-			break
+	for ; ; offset++ {
+		if err := s.kv.CompareAndSwap(context.Background(),
+			keyLatest, offset-1, offset, true); err != nil {
+			log.Error("cas 2")
+			continue
 		}
+		break
 	}
 
 	if err := s.kv.Write(context.Background(), fmt.Sprintf("%s%s_%d", prefixEntry, key, offset), message); err != nil {
