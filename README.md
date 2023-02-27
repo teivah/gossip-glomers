@@ -111,6 +111,8 @@ This solution leads to the following results:
 
 ### #5c: Efficient Kafka-Style Log
 
+[Solution](https://github.com/teivah/gossip-glomers/blob/main/challenge-5c-kafka-log/main.go)
+
 Here, we are asked to improve the overall latency. The solution I took is to switch from one entry per message to one entry per key (hence, one entry contains multiple messages). To do that while passing the test, my solution routes the message for a given key to the same instance using a hashing mechanism. That allows me to get rid of expensive CAS fail-and-retry operations. All the writes are done using `Write` using a shared mutex to protect concurrent writes that would result (if no mutex) in consistency issues.
 
 Metrics-wise:
@@ -124,3 +126,29 @@ So a small drop regarding availability, which can probably be explained by the f
 One remark, though. In Kafka, this routing to the same node isn't achieved at the topic level. Imagine that a 3-node Kafka cluster has only one topic; we don't want to have only one node being a hot spot. Hence, Kafka introduces the concept of a partition, basically a sub-split per topic. If I wanted to improve my solution, I should probably do the same.
 
 Also, another downside is that now I have only one entry for all the messages that belong to a specific key. If we receive too many messages, at some point, it will become an issue. To tackle that, and if I recall correctly, Kafka introduces the concept of segments, basically splitting the partitions into chunks (and a rotation either based on time or on size). Again, if I wanted to improve my solution, I should probably do it as well.
+
+## Challenge #6: Totally-Available Transactions
+
+### #6a: Single-Node, Totally-Available Transactions
+
+[Solution](https://github.com/teivah/gossip-glomers/blob/main/challenge-6a-totally-available-transactions/main.go)
+
+This part is pretty straightforward; as it's a single node, we can store everything in memory.
+
+### #6b: Totally-Available, Read Uncommitted Transactions
+
+[Solution](https://github.com/teivah/gossip-glomers/blob/main/challenge-6b-totally-available-transactions/main.go)
+
+Now, we have to implement a distributed store that ensures read-uncommitted consistency. From my notes (and a lot was coming from the Jepsen website), this consistency level prohibits dirty writes: a transaction that can overwrite a value that has previously been written by another transaction that is still in-flight and has not been committed yet. The main problem with dirty writes is that it can violate integrity constraints.
+
+In my solution, I implemented a coordination mechanism between the nodes to synchronize their state upon a new request. As we have to handle network partitions, the solution relies on `SyncRPC` and a custom retry mechanism.
+
+### #6c: Totally-Available, Read Committed Transactions
+
+[Solution](https://github.com/teivah/gossip-glomers/blob/main/challenge-6c-totally-available-transactions/main.go)
+
+Now, our store has to ensure the read-committed consistency. Again, from my notes, this model prevents dirty reads: transactions aren't allowed to observe writes from transactions that do not commit.
+
+Unfortunately (and I mean it), my previous solution for [#6b](#6b--totally-available-read-uncommitted-transactions) is passing. Unfortunately, because it means the end of the challenge 😔.
+
+Thanks to [Fly.io](https://fly.io/) and [Kyle Kingsbury](https://aphyr.com/about), it was truly a fantastic experience.
