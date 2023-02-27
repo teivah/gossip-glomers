@@ -14,6 +14,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const maxRetry = 100
+
 func init() {
 	f, err := os.OpenFile("/tmp/maelstrom.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -95,8 +97,7 @@ func (s *server) broadcast(src string, body map[string]any) error {
 
 	for _, children := range n.Children {
 		for _, entry := range children.Entries {
-			s := entry.Value.(string)
-			neighbors = append(neighbors, s)
+			neighbors = append(neighbors, entry.Value.(string))
 		}
 	}
 
@@ -108,7 +109,7 @@ func (s *server) broadcast(src string, body map[string]any) error {
 		dst := dst
 		go func() {
 			if err := s.rpc(dst, body); err != nil {
-				for i := 0; i < 100; i++ {
+				for i := 0; i < maxRetry; i++ {
 					if err := s.rpc(dst, body); err != nil {
 						// Sleep and retry
 						time.Sleep(time.Duration(i) * time.Second)
