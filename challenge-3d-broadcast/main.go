@@ -60,11 +60,6 @@ func (s *server) initHandler(_ maelstrom.Message) error {
 	return nil
 }
 
-/*
-forward
-message: 1000
-to: n1
-*/
 func (s *server) forwardHandler(msg maelstrom.Message) error {
 	var body map[string]any
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
@@ -128,35 +123,6 @@ func (s *server) broadcast(src string, body map[string]any) error {
 		}
 	}
 
-	//if id == len(n.Entries)-1 {
-	//	for i := id; i < len(n.Children); i++ {
-	//		child := n.Children[i]
-	//		for _, entry := range child.Entries {
-	//			s := entry.Value.(string)
-	//			neighbors = append(neighbors, s)
-	//		}
-	//	}
-	//} else {
-	//	if id < len(n.Children) {
-	//		child := n.Children[id]
-	//		for _, entry := range child.Entries {
-	//			s := entry.Value.(string)
-	//			neighbors = append(neighbors, s)
-	//		}
-	//	}
-	//}
-
-	log.Infof("node=%v: %v", s.nodeID, neighbors)
-
-	//for _, children := range n.Children {
-	//	if children != nil {
-	//		for _, entry := range children.Entries {
-	//			s := entry.Value.(string)
-	//			neighbors = append(neighbors, s)
-	//		}
-	//	}
-	//}
-
 	for _, dst := range neighbors {
 		if dst == src || dst == s.nodeID {
 			continue
@@ -214,7 +180,7 @@ func (s *server) getAllIDs() []int {
 }
 
 func (s *server) topologyHandler(msg maelstrom.Message) error {
-	tree := btree.NewWithIntComparator(25)
+	tree := btree.NewWithIntComparator(len(s.n.NodeIDs()))
 	// TODO Use number of nodes
 	for i := 0; i < 25; i++ {
 		tree.Put(i, fmt.Sprintf("n%d", i))
