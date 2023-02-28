@@ -47,7 +47,7 @@ In the end, the solution achieves the following results:
 
 I also switched from `Send` to `SyncRPC` to detect network partitions and implement a proper retry mechanism.
 
-The main downside of this solution is that the broadcast load isn't evenly spread among the nodes. Indeed, the root node becomes a hot spot. In case of this node becomes inaccessible, it means that until it's fixed, none of the nodes will receive any broadcast message. That's the main tradeoff with this solution.
+The main downside of this topology is that the broadcast load isn't evenly spread among the nodes. Indeed, the root node becomes a hot spot. In case of this node becomes inaccessible, it means that until it's fixed, none of the nodes will receive any broadcast message.
 
 ### #3e: Efficient Broadcast, Part II
 
@@ -68,7 +68,7 @@ So, instead of sending a single message value, we can now broadcast multiple mes
 * Median latency: 764ms
 * Maximum latency: 1087ms
 
-It's also interesting to play with the frequency. Increasing the value means decreasing messages-per-operation but increasing the latencies. No solution is perfect; everything is a question of tradeoffs and what's the best balance given a specific context.
+It's also interesting to play with the frequency. Increasing the value means decreasing messages-per-operation but increasing the latencies. No solution is perfect; everything is a question of tradeoffs and balance.
 
 The solution also handles network partitions.
 
@@ -103,7 +103,7 @@ In this first distributed implementation, I decided to use three bucket types (b
 * One to store the latest committed offset for a given key
 * And the last bucket to store the messages
 
-For the latter, I chose to store a single entry per message. The main message is that I don't have to rely on `CompareAndSwap` to store messages. I only use it to store the latest offset. During the tests, it triggers a CAS retry about 40 times. Yet, the main downside is that the `poll` has a linear time complexity: we start from the provided offset, and then iterate until we reach an `KeyDoesNotExist` error. 
+For the latter, I chose to store a single entry per message. The main advantage is that I don't have to rely on `CompareAndSwap` to store messages. I only use it to store the latest offset. During the tests, it triggers a CAS retry about 40 times. Yet, the main downside is that the `poll` requires _n_ calls to the store: we start from the provided offset, and then iterate until we reach an `KeyDoesNotExist` error. 
 
 This solution leads to the following results: 
 
@@ -123,7 +123,7 @@ Metrics-wise:
 * Availability: 0.99511856
 * Throughput peak: ~350hz
 
-So a small drop regarding availability, which can probably be explained by the fact that a `send` request needs to be forwarded synchronously to another node if the hashing doesn't match the node ID. Yet, it increases the messages-per-operation and the throughput.
+So a small drop regarding availability, which can probably be explained by the fact that a `send` request needs to be forwarded synchronously to another node if the hashing doesn't match the node ID. Yet, this version decreases the messages-per-operation and increases the throughput.
 
 One remark, though. In Kafka, this routing to the same node isn't achieved at the topic level. Imagine that a 3-node Kafka cluster has only one topic; we don't want to have only one node being a hot spot. Hence, Kafka introduces the concept of a partition, basically a sub-split per topic. If I wanted to improve my solution, I should probably do the same.
 
