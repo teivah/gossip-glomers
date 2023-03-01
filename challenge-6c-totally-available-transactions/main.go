@@ -26,10 +26,8 @@ func init() {
 
 func main() {
 	n := maelstrom.NewNode()
-	kv := maelstrom.NewLinKV(n)
 	s := &server{
 		n:     n,
-		kv:    kv,
 		store: make(map[int]int),
 	}
 
@@ -54,7 +52,6 @@ func wrap(f func(msg maelstrom.Message) error) func(msg maelstrom.Message) error
 
 type server struct {
 	n      *maelstrom.Node
-	kv     *maelstrom.KV
 	nodeID string
 	id     int
 
